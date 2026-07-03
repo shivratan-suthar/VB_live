@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VectorBoard — The Digital Classroom Suite</title>
+    
+    <style>
+        :root {
+            --bg-main: #141414;
+            --toolbar-bg: #242424;
+            --border-color: #333333;
+            --text-main: #ffffff;
+            --text-muted: #999999;
+            --brand-accent: #f26d21;
+            --play-blue: #3b8bff;
+        }
+
+        body { 
+            margin: 0; 
+            padding: 0; 
+            background-color: var(--bg-main); 
+            color: var(--text-main); 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            height: 100vh; 
+            display: flex; 
+            flex-direction: column; 
+            overflow: hidden; 
+            user-select: none; 
+        }
+
+        /* --- SCREEN CENTRAL HUB GRID --- */
+        .home-screen {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: radial-gradient(circle at center, #222 0%, #0a0a0a 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000;
+        }
+        
+        .home-title { 
+            font-size: 42px; 
+            font-weight: 900; 
+            color: var(--brand-accent); 
+            font-family: Georgia, serif; 
+            margin-bottom: 8px; 
+            text-shadow: 0 4px 10px rgba(0,0,0,0.5); 
+        }
+
+        .home-subtitle {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-bottom: 50px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .home-grid { 
+            display: flex; 
+            gap: 30px; 
+            max-width: 850px; 
+            width: 100%; 
+            padding: 0 20px; 
+            box-sizing: border-box; 
+        }
+
+        /* --- NAVIGATION CARDS LINKED BY ANCHORS (<a>) --- */
+        .home-card {
+            flex: 1; 
+            background: #1e1e1e; 
+            border: 2px solid #333; 
+            border-radius: 16px;
+            padding: 50px 30px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center;
+            text-align: center; 
+            cursor: pointer; 
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            text-decoration: none; 
+            color: inherit;
+        }
+        
+        /* Recorder Hover Theme */
+        .home-card.record-card:hover { 
+            transform: translateY(-8px); 
+            border-color: var(--brand-accent); 
+            box-shadow: 0 15px 35px rgba(242, 109, 33, 0.25); 
+        }
+        
+        /* Player Hover Theme */
+        .home-card.play-card:hover { 
+            transform: translateY(-8px); 
+            border-color: var(--play-blue); 
+            box-shadow: 0 15px 35px rgba(59, 139, 255, 0.25); 
+        }
+
+        .card-icon { 
+            font-size: 54px; 
+            margin-bottom: 24px; 
+            transition: transform 0.2s;
+        }
+        .home-card:hover .card-icon {
+            transform: scale(1.1);
+        }
+
+        .card-title { 
+            font-size: 22px; 
+            font-weight: bold; 
+            margin-bottom: 14px; 
+            letter-spacing: 0.5px;
+        }
+        
+        .record-card .card-title { color: #ffffff; }
+        .home-card.record-card:hover .card-title { color: var(--brand-accent); }
+        
+        .play-card .card-title { color: #ffffff; }
+        .home-card.play-card:hover .card-title { color: var(--play-blue); }
+
+        .card-desc { 
+            font-size: 13px; 
+            color: var(--text-muted); 
+            line-height: 1.6; 
+            margin: 0;
+        }
+        
+        footer {
+            position: absolute;
+            bottom: 20px;
+            font-size: 11px;
+            color: #444;
+            letter-spacing: 0.5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="home-screen">
+        <div class="home-title">Vector Board</div>
+        <div class="home-subtitle">The Digital Boardroom for Teachers & Students</div>
+        
+        <div class="home-grid">
+            <a href="recorder.html" class="home-card record-card">
+                <div class="card-icon">⏺️</div>
+                <div class="card-title">Educater's Board</div>
+                <p class="card-desc">Batch upload PDF and image documents, utilize multi-tool drawing palettes (pen, highlighter, laser pointer, 3D shapes), record synchronized webcam and mic layers, and export compressed .board packages.</p>
+            </a>
+
+            <a href="player.html" class="home-card play-card">
+                <div class="card-icon">▶️</div>
+                <div class="card-title">Learner's Board</div>
+                <p class="card-desc">Load saved .board workspace packages to execute 16:9 vector timeline sync and media layers natively. Adjust playback speeds, toggle slide navigation modes, filter vector annotations, and export decks to PDF.</p>
+            </a>
+        </div>
+        
+        <footer>inspired by Ravi Parkash Sir and Created by Shiv</footer>
+    </div>
+
+</body>
+</html>

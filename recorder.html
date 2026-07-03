@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shiv's Board - Educator Studio & Live Room</title>
+    
+    <!-- Core Application Libraries -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+
+    <!-- NEW: Real-Time Live Streaming Libraries -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+    <link rel="stylesheet" href="recorder.css">
+</head>
+<body>
+
+   <div id="orientationOverlay" class="orientation-warning">
+        <div class="rotate-icon">📱</div>
+        <h2>Tip: Rotate Your Screen</h2>
+        <p>For the best drawing experience and wider canvas proportions, we recommend rotating your device horizontally.</p>
+        
+        <div style="margin-top: 25px;">
+            <button id="btnDismissOrientation" style="background: var(--brand-accent); color: white; border: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(242, 109, 33, 0.4);">
+                Got It, Continue
+            </button>
+        </div>
+    </div>
+
+   <header>
+        <div class="header-left">
+            <a href="index.html" target="_blank" class="hdr-btn">🏠 INDEX DASHBOARD</a>
+            <div class="live-badge" id="btnLiveToggle">🔴 Start Live Room</div>
+        </div>
+
+        <span id="classroomStateHeadingTitle">Educater's Board</span>
+
+        <div class="header-right">
+            <span class="timer-display" id="topTimer">00:00:00</span>
+            <a href="player.html" target="_blank" class="hdr-btn" style="border-color: var(--play-blue);">▶ OPEN Learner's Board</a>
+            <button class="hdr-btn end-class-btn" id="btnEndClass">⏹️ END CAPTURE</button>
+        </div>
+    </header>
+
+    <div class="app-body">
+        <div class="central-workspace" id="workspaceContainer">
+            <div class="floating-palette">
+                <div class="palette-group" id="colorPalette">
+                    <div class="color-dot" style="background:#ff4b4b" data-color="#ff4b4b"></div>
+                    <div class="color-dot" style="background:#ff9f3e" data-color="#ff9f3e"></div>
+                    <div class="color-dot" style="background:#ffde37" data-color="#ffde37"></div>
+                    <div class="color-dot" style="background:#3e8bff" data-color="#3e8bff"></div>
+                    <div class="color-dot" style="background:#20d071" data-color="#20d071"></div>
+                    <div class="color-dot active" style="background:#ffffff" data-color="#ffffff"></div>
+                    
+                    <div class="color-dot custom-color-picker" style="background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); position: relative; overflow: hidden; margin-top: 4px; border: 1px solid #555;">
+                        <input type="color" id="nativeColorPicker" value="#ffffff" style="opacity: 0; position: absolute; top: -10px; left: -10px; width: 40px; height: 40px; cursor: pointer;">
+                    </div>
+                </div>
+                
+                <div class="palette-group" id="brushThickness">
+                    <div class="thickness-btn" data-width="3"><span class="thickness-dot" style="width: 3px; height: 3px;"></span></div>
+                    <div class="thickness-btn active" data-width="8"><span class="thickness-dot" style="width: 7px; height: 7px;"></span></div>
+                    <div class="thickness-btn" data-width="16"><span class="thickness-dot" style="width: 13px; height: 13px;"></span></div>
+                </div>
+
+                <div class="palette-group" id="textSizePalette" style="display: none;">
+                    <div class="text-size-btn" data-size="64">H1</div>
+                    <div class="text-size-btn active" data-size="42">H2</div>
+                    <div class="text-size-btn" data-size="24">H3</div>
+                </div>
+            </div>
+
+            <input type="file" id="canvasImageInsertLoader" accept="image/*" style="display:none;">
+
+            <div class="board-wrapper" id="canvasContainer">
+                <canvas id="fabricCanvas"></canvas>
+            </div>
+
+            <div class="shapes-popup" id="shapesMenu">
+                <div class="shape-opt" data-shape="select">M Select Element</div>
+                <div class="shape-opt" data-shape="rect"> Rectangle</div>
+                <div class="shape-opt" data-shape="circle"> Circle</div>
+                <div class="shape-opt" data-shape="triangle"> Triangle</div>
+                <div class="shape-opt" data-shape="ellipse"> Ellipse</div>
+                <div class="shape-opt" data-shape="line"> Line</div>
+                <div class="shape-opt" data-shape="cube"> 3D Cube</div>
+            </div>
+
+            <div class="more-popup" id="moreGridPopup">
+                <label class="grid-item">
+                     Upload Document Logs
+                    <input type="file" id="gridFileLoader" accept="image/*, application/pdf" multiple style="display:none;">
+                </label>
+            </div>
+
+            <div class="bottom-toolbar" id="studioCreationToolbarUI">
+                <div class="tb-group">
+                    <button class="tb-btn" id="btnQuickSelect">🖱️<span>Select</span></button>
+                    <button class="tb-btn active" data-tool="pen">✏️<span>Pen</span></button>
+                    <button class="tb-btn" data-tool="highlight">🖍️<span>Highlight</span></button>
+                    <button class="tb-btn" data-tool="eraser">🧽<span>Eraser</span></button>
+                    <button class="tb-btn" data-tool="text">🅰️<span>Text</span></button>
+                    <button class="tb-btn" id="btnQuickLine">📏<span>Line</span></button>
+                    <button class="tb-btn" data-tool="pointer">🎯<span>Laser</span></button>
+                    <button class="tb-btn" id="btnInsertImage">🖼️<span>Image</span></button>
+                    <button class="tb-btn" id="btnShapesTrigger">🔲<span>Objects</span></button>
+                </div>
+                <div class="tb-group pager-group">
+                    <div class="page-arrow" id="btnPrevPage">❮</div>
+                    <span id="pageIndicator">1 / 1</span>
+                    <div class="page-arrow" id="btnNextPage">❯</div>
+                </div>
+                <div class="tb-group">
+                    <button class="tb-btn" id="btnAddPage">➕<span>Add Slide</span></button>
+                    <button class="tb-btn" id="btnMoreTrigger">⫶⫶<span>More Options</span></button>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="cam-box">
+                <div id="camPlaceholderText" class="cam-placeholder">📷 Camera & Mic Standby<br><span>Click 'Toggle Cam' to allow access</span></div>
+                
+                <div class="hardware-error-notice hidden" id="camHardwareErrorNotice">Camera hardware access block listed or unauthorized. Recording blank template frames.</div>
+                <video id="webcamVideoFeed" autoplay muted playsinline></video>
+                <div class="mic-overlay-toggle" id="btnMute">🎙️ Mute</div>
+                <div class="cam-overlay-toggle" id="btnToggleCam">📷 Toggle Cam</div>
+            </div>
+            <div class="file-manager">
+                <div class="fm-header">
+                    <span>DOCUMENT CONTAINER SORTER</span>
+                    <label class="upload-btn-custom" style="cursor: pointer; float: right; font-size: 11px; background: #333; padding: 4px 8px; border-radius: 4px;">
+                        ➕ Upload Slide
+                        <input type="file" id="sideFileLoader" accept="image/*, application/pdf" multiple style="display:none;">
+                    </label>
+                </div>
+                <div class="file-list" id="fileRegistryContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="shortcutHudOverlay">
+        <div class="shortcut-hud-box">
+            <h3>⌨️ STUDIO HOTKEYS</h3>
+            <div class="shortcut-grid">
+                <div><kbd>Ctrl + P</kbd> Pen Tool</div>
+                <div><kbd>Ctrl + H</kbd> Highlighter</div>
+                <div><kbd>Ctrl + E</kbd> Eraser</div>
+                <div><kbd>Ctrl + T</kbd> Text Tool</div>
+                <div><kbd>Ctrl + L</kbd> Straight Line</div>
+                <div><kbd>Ctrl + O</kbd> Objects (Shapes)</div>
+                <div><kbd>Ctrl + 1..6</kbd> Switch Palette Slots</div>
+                <div><kbd>Ctrl + Z / Y</kbd> Undo / Redo</div>
+            </div>
+            <div class="shortcut-footer">Release <span>ALT</span> to resume writing</div>
+        </div>
+    </div>
+
+    <canvas id="hiddenStudioMixCanvas" width="640" height="360" style="display:none;"></canvas>
+
+    <script src="recorder_canvas.js"></script>
+    <script src="recorder_media.js"></script>
+</body>
+</html>

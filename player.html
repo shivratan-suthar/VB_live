@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learner's Board - Live Room</title>
+    
+    <!-- Core Application Libraries -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- NEW: Real-Time Live Streaming Libraries -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+    <link rel="stylesheet" href="player.css">
+</head>
+<body>
+
+    <!-- SCREEN 1: LIVE CLASSROOM JOIN HUB -->
+    <div class="home-screen" id="homeViewContainer">
+        <div class="home-title">Learner's Live Board</div>
+        <div class="home-grid">
+            <div class="home-card" id="btnJoinLiveClassroom" style="cursor: pointer;">
+                <div class="card-icon">📡</div>
+                <div class="card-title">Join Live Classroom</div>
+                <div class="card-desc">Connect directly to the educator's live video stream and real-time synchronized vector whiteboard.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOP RUNTIME HEADER -->
+    <header>
+        <div class="header-left">
+            <span id="classroomStateHeadingTitle">Learner's Live Board</span>
+        </div>
+    </header>
+
+    <!-- MAIN WORKSPACE -->
+    <div class="app-body">
+        <div class="central-workspace">
+            
+            <div class="board-wrapper" id="canvasContainer">
+                <div id="playbackCursor"></div>
+                
+<div class="cam-box" id="webcamContainerWrapperBox">
+    <!-- NEW: Black background overlay when camera is turned off -->
+    <div id="studentCamPlaceholder" style="display: none; width: 100%; height: 100%; background: #000000; position: absolute; top: 0; left: 0; z-index: 10; justify-content: center; align-items: center; flex-direction: column; color: #ffffff; font-size: 13px; font-weight: bold; letter-spacing: 0.5px; border-radius: 6px;">
+        📷 Camera Off
+    </div>
+    <video id="webcamVideoFeed" autoplay playsinline></video>
+</div>
+                <canvas id="fabricCanvas"></canvas>
+            </div>
+
+            <!-- YOUTUBE-STYLE TIMELINE CONTROLS PANEL -->
+            <div class="modern-playback-panel" id="studioPlaybackPlayerToolbarUI">
+                
+                <div class="yt-timeline-container">
+                    <input type="range" id="playerMasterTimelineSliderScrubber" class="modern-playback-slider" min="0" max="100" value="0" step="0.01">
+                </div>
+                
+                <div class="yt-controls-layout">
+                    <div class="yt-left-cluster">
+                        <button class="ctrl-icon-btn" id="btnPlayerExitToMenu" title="Exit Player" style="font-size: 16px;">←</button>
+                        <button class="ctrl-icon-btn" id="btnRewindTenSeconds" title="Rewind 10s">⟲</button>
+                        <button class="ctrl-icon-btn" id="btnModernPlayPause" style="font-size: 22px;">▶</button>
+                        <button class="ctrl-icon-btn" id="btnForwardTenSeconds" title="Forward 10s">⟳</button>
+                        
+                        <div class="volume-control-wrapper" style="margin-left: 5px;">
+                            <button class="ctrl-icon-btn" id="btnModernMuteToggle" title="Mute/Unmute" style="margin-left: 0;">🔊</button>
+                            <div class="volume-slider-container">
+                                <input type="range" id="playerVolumeSlider" class="modern-volume-slider" min="0" max="1" step="0.01" value="1">
+                            </div>
+                        </div>
+                        <span class="modern-time-label" id="modernPlayerTimeDisplayLabel">🔴 LIVE STREAM</span>
+                    </div>
+
+                    <div class="yt-right-cluster">
+                        <button class="ctrl-icon-btn" id="btnModernSettingsTrigger" title="Playback Settings">⚙️</button>
+                        <button class="ctrl-icon-btn" id="btnModernFullscreenToggle" title="Full Screen">⛶</button>
+                    </div>
+                </div>
+                
+                <!-- FLOATING SETTINGS CARD POPUP -->
+                <div class="settings-popup-card" id="modernSettingsCardPopup">
+                    <div id="settingsPopupMainLayer">
+                        <div class="settings-option-row" id="btnTriggerSpeedSubmenu">
+                            <span>Playback speed</span>
+                            <span class="settings-value-label" id="lblSpeedValueDisplay">1x &gt;</span>
+                        </div>
+                        <div class="settings-option-row" id="rowToggleSlideMode">
+                            <span>Slide mode</span>
+                            <div class="toggle-switch-pill">
+                                <span class="toggle-pill-opt" id="pillSlideModeOn">On</span>
+                                <span class="toggle-pill-opt active" id="pillSlideModeOff">Off</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="settingsPopupSpeedLayer" class="hidden">
+                        <div class="submenu-nav-header" id="btnBackToMainSettingsMenu">
+                            <span>&lt; Playback speed</span>
+                        </div>
+                        <div class="speed-selection-item" data-val="0.75"><span class="speed-check-icon"></span>0.75x</div>
+                        <div class="speed-selection-item selected" data-val="1.0"><span class="speed-check-icon">✓ </span>1x</div>
+                        <div class="speed-selection-item" data-val="1.25"><span class="speed-check-icon"></span>1.25x</div>
+                        <div class="speed-selection-item" data-val="1.5"><span class="speed-check-icon"></span>1.5x</div>
+                        <div class="speed-selection-item" data-val="1.75"><span class="speed-check-icon"></span>1.75x</div>
+                        <div class="speed-selection-item" data-val="2.0"><span class="speed-check-icon"></span>2x</div>
+                    </div>
+                </div>
+
+                <div class="playback-info-footer">
+                    <div class="playback-brand-signature"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SIDEBAR DECK TRACKER -->
+        <div class="sidebar slide-mode-hidden" id="appWorkspaceSidebarColumnPanel">
+            <div class="file-manager">
+                <div class="fm-header">
+                    <span id="btnExitSlideModeArrow" class="ctrl-icon-btn hidden" style="font-size: 18px; font-weight: bold; color:black; display: inline-flex; width: 24px; height: 24px; margin-right: 6px; padding: 0;" title="Turn Off Slide Mode">←</span>
+                    <span id="sidebarPanelDeckHeaderTitleLabel">Slides</span>
+                </div>
+                <div class="file-list" id="fileRegistryContainer"></div>
+            </div>
+            
+            <div class="sidebar-playback-actionbar" id="panelPlaybackSidebarControlsFooter">
+                <div class="sidebar-action-row">
+                    <span class="sidebar-action-label">Annotations</span>
+                    <div class="toggle-switch-pill" id="btnToggleAnnotationsVectorVisibility" style="cursor: pointer;">
+                        <span class="toggle-pill-opt active" id="pillVectorsOn">On</span>
+                        <span class="toggle-pill-opt" id="pillVectorsOff">Off</span>
+                    </div>
+                </div>
+                <div class="sidebar-action-row" style="margin-top: 2px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button class="ctrl-icon-btn" id="btnDownloadPdf" title="Download Slide Deck as PDF" style="width: 24px; height: 24px; font-size: 14px; padding: 0;">📥</button>
+                        <span class="sidebar-action-label">Slide Deck Navigation</span>
+                    </div>
+                    <div class="micro-stepper-widget">
+                        <span class="sidebar-arrow-btn" id="btnStepperPrevPage">▲</span>
+                        <span class="sidebar-arrow-btn" id="btnStepperNextPage">▼</span>
+                        <span class="stepper-index-indicator" id="lblStepperIndexTextIndicator">1 / 1</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="player1.js"></script>
+    <script src="player2.js"></script>
+</body>
+</html>
