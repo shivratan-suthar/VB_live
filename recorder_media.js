@@ -8,7 +8,7 @@
 window.ROOM_ID = 'classroom-room-101';
 const EDUCATOR_PEER_ID = 'educator-' + window.ROOM_ID;
 
-window.liveSocket = io('http://13.233.118.249:3000');
+window.liveSocket = io(CONFIG.API_URL);
 window.isRecording = false; 
 window.recordStartTime = 0; 
 window.jsonDrawingTimelineLog = [];
