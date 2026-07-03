@@ -9,8 +9,7 @@ window.ROOM_ID = 'classroom-room-101';
 const EDUCATOR_PEER_ID = 'educator-' + window.ROOM_ID;
 const LEARNER_PEER_ID = 'learner-' + Math.floor(Math.random() * 100000);
 
-const liveSocket = io(API_URL);
-console.log(liveSocket, "is api visible for player");
+const liveSocket = io('http://13.233.118.249:3000');
 
 // Configure PeerJS with reliable Google STUN servers for network traversal
 const peer = new Peer(LEARNER_PEER_ID, {
