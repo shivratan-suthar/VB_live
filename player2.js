@@ -10,7 +10,7 @@ const EDUCATOR_PEER_ID = 'educator-' + window.ROOM_ID;
 const LEARNER_PEER_ID = 'learner-' + Math.floor(Math.random() * 100000);
 
 // Connect securely to your permanent AWS backend
-const liveSocket = io('https://vector-board.duckdns.org');
+const liveSocket = io('https://api.sutharx.in');
 
 // Configure PeerJS with reliable STUN/TURN servers for network traversal
 const peer = new Peer(LEARNER_PEER_ID, {

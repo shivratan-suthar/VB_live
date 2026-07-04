@@ -10,7 +10,7 @@ const EDUCATOR_PEER_ID = 'educator-' + window.ROOM_ID;
 
 
 // With your secure ngrok URL + bypass header:
-window.liveSocket = io('https://vector-board.duckdns.org', {
+window.liveSocket = io('https://api.sutharx.in', {
     extraHeaders: {
         "ngrok-skip-browser-warning": "true"
     }
