@@ -9,36 +9,33 @@ window.ROOM_ID = 'classroom-room-101';
 const EDUCATOR_PEER_ID = 'educator-' + window.ROOM_ID;
 const LEARNER_PEER_ID = 'learner-' + Math.floor(Math.random() * 100000);
 
-// With your secure ngrok URL + bypass header:
-const liveSocket = io('https://vector-board.duckdns.org', {
-    extraHeaders: {
-        "ngrok-skip-browser-warning": "true"
-    }
-});
+// Connect securely to your permanent AWS backend
+const liveSocket = io('https://vector-board.duckdns.org');
 
-// Configure PeerJS with reliable Google STUN servers for network traversal
+// Configure PeerJS with reliable STUN/TURN servers for network traversal
 const peer = new Peer(LEARNER_PEER_ID, {
     config: {
-        iceServers: [// 1. STUN servers (Discovers public IP addresses)
-    { urls: 'stun:stun.relay.metered.ca:80' },
-    { urls: 'stun:stun.l.google.com:19302' },
+        iceServers: [
+            // 1. STUN servers (Discovers public IP addresses)
+            { urls: 'stun:stun.relay.metered.ca:80' },
+            { urls: 'stun:stun.l.google.com:19302' },
 
-    // 2. Your Active TURN servers (Relays video across strict firewalls & mobile networks)
-    {
-      urls: 'turn:a.relay.metered.ca:80',
-      username: '2f2a84ff07ed9b7fb5e9cc21',
-      credential: 'Uvfc7zqabCwxCkt4'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:443',
-      username: '2f2a84ff07ed9b7fb5e9cc21',
-      credential: 'Uvfc7zqabCwxCkt4'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:443?transport=tcp',
-      username: '2f2a84ff07ed9b7fb5e9cc21',
-      credential: 'Uvfc7zqabCwxCkt4'
-    }
+            // 2. Active TURN servers (Relays video across strict firewalls & mobile networks)
+            {
+                urls: 'turn:a.relay.metered.ca:80',
+                username: '2f2a84ff07ed9b7fb5e9cc21',
+                credential: 'Uvfc7zqabCwxCkt4'
+            },
+            {
+                urls: 'turn:a.relay.metered.ca:443',
+                username: '2f2a84ff07ed9b7fb5e9cc21',
+                credential: 'Uvfc7zqabCwxCkt4'
+            },
+            {
+                urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+                username: '2f2a84ff07ed9b7fb5e9cc21',
+                credential: 'Uvfc7zqabCwxCkt4'
+            }
         ]
     }
 });
@@ -62,12 +59,28 @@ let playbackDrawColor = '#ffffff';
 let shapeStartX = 0;
 let shapeStartY = 0;
 
-// Helper function to attach and play video stream
+// Helper function to update camera placeholder UI overlay
+function setStudentCamPlaceholder(isCamOn) {
+    const placeholder = document.getElementById('studentCamPlaceholder');
+    if (placeholder) {
+        placeholder.style.display = isCamOn ? 'none' : 'flex';
+    }
+}
+
+// Helper function to attach and play video stream with track muting fallbacks
 function attachRemoteStream(remoteStream) {
     console.log('[+] Live educator video/audio stream connected!');
     if (window.camVideoFeed) {
         window.camVideoFeed.srcObject = remoteStream;
-        window.camVideoFeed.play().catch(err => console.error("Video autoplay blocked by browser:", err));
+        window.camVideoFeed.play().catch(err => console.error("Autoplay blocked by browser:", err));
+    }
+
+    // Hardware fallback: listen directly to WebRTC track mute/unmute events
+    const videoTracks = remoteStream.getVideoTracks();
+    if (videoTracks.length > 0) {
+        setStudentCamPlaceholder(videoTracks[0].enabled && !videoTracks[0].muted);
+        videoTracks[0].onmute = () => setStudentCamPlaceholder(false);
+        videoTracks[0].onunmute = () => setStudentCamPlaceholder(true);
     }
 }
 
@@ -114,12 +127,23 @@ liveSocket.on('stream-ready', (data) => {
     liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
 });
 
+// Listen for live educator camera status changes
+liveSocket.on('camera-status', (data) => {
+    console.log('[*] Educator camera status changed:', data.enabled ? 'ON' : 'OFF');
+    setStudentCamPlaceholder(data.enabled);
+});
+
 // --- 3. SLIDE DECK SYNCHRONIZATION (LATE-JOIN & UPLOADS) ---
 liveSocket.on('deck-state-init', (deckPayload) => {
     console.log('[+] Synchronizing live slide deck:', deckPayload.slides?.length, 'slides');
     window.globalSlidesDeck = deckPayload.slides || [];
     window.activeSlideIndex = deckPayload.activeSlideIndex || 0;
     
+    // Check if initial camera state was passed
+    if (deckPayload.isCameraOn !== undefined) {
+        setStudentCamPlaceholder(deckPayload.isCameraOn);
+    }
+
     if (typeof window.renderFlatSlideSorterUI === 'function') {
         window.renderFlatSlideSorterUI();
     }
@@ -351,7 +375,7 @@ liveSocket.on('board-action', (ev) => {
             console.error("Failed to parse undo/redo state:", err);
         }
     }
-    // L. Image Insertion (CRITICAL FIX: Renders instant live data URL)
+    // L. Image Insertion (Renders instant live data URL)
     else if (ev.type === 'insert-image' && ev.src) {
         fabric.Image.fromURL(ev.src, (img) => {
             const maxW = 1920 * 0.7; const maxH = 1080 * 0.7;
@@ -389,50 +413,3 @@ window.getSmoothPathFromPoints = function(points) {
     pathStr += ` L ${points[points.length - 1].x} ${points[points.length - 1].y}`;
     return pathStr;
 };
-// --- ADD THIS HELPER AT THE TOP OF player2.js ---
-function setStudentCamPlaceholder(isCamOn) {
-    const placeholder = document.getElementById('studentCamPlaceholder');
-    if (placeholder) {
-        placeholder.style.display = isCamOn ? 'none' : 'flex';
-    }
-}
-
-// --- UPDATE attachRemoteStream IN player2.js TO HANDLE TRACK MUTING ---
-function attachRemoteStream(remoteStream) {
-    console.log('[+] Live educator video/audio stream connected!');
-    if (window.camVideoFeed) {
-        window.camVideoFeed.srcObject = remoteStream;
-        window.camVideoFeed.play().catch(err => console.error("Autoplay blocked:", err));
-    }
-
-    // Hardware fallback: listen directly to WebRTC track mute/unmute events
-    const videoTracks = remoteStream.getVideoTracks();
-    if (videoTracks.length > 0) {
-        setStudentCamPlaceholder(videoTracks[0].enabled && !videoTracks[0].muted);
-        videoTracks[0].onmute = () => setStudentCamPlaceholder(false);
-        videoTracks[0].onunmute = () => setStudentCamPlaceholder(true);
-    }
-}
-
-// --- ADD THIS SOCKET LISTENER ANYWHERE IN player2.js ---
-liveSocket.on('camera-status', (data) => {
-    console.log('[*] Educator camera status changed:', data.enabled ? 'ON' : 'OFF');
-    setStudentCamPlaceholder(data.enabled);
-});
-
-// --- UPDATE deck-state-init LISTENER IN player2.js ---
-liveSocket.on('deck-state-init', (deckPayload) => {
-    console.log('[+] Synchronizing live slide deck:', deckPayload.slides?.length, 'slides');
-    window.globalSlidesDeck = deckPayload.slides || [];
-    window.activeSlideIndex = deckPayload.activeSlideIndex || 0;
-    
-    // Check if initial camera state was passed
-    if (deckPayload.isCameraOn !== undefined) {
-        setStudentCamPlaceholder(deckPayload.isCameraOn);
-    }
-
-    if (typeof window.renderFlatSlideSorterUI === 'function') {
-        window.renderFlatSlideSorterUI();
-    }
-    window.jumpToSlideIndex(window.activeSlideIndex);
-});
