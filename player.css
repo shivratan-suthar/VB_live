@@ -1,7 +1,6 @@
 /**
  * PLAYER.CSS — Learner's Live Classroom & Whiteboard Receiver Styles
- * Features 16:9 canvas scaling, draggable webcam picture-in-picture,
- * YouTube-style toolbar, live status indicators, and responsive mobile layouts.
+ * Fully Responsive Version (Desktop, Tablet, Mobile)
  */
 
 :root {
@@ -52,6 +51,8 @@ body {
     font-family: Georgia, serif; 
     margin-bottom: 40px; 
     text-shadow: 0 4px 10px rgba(0,0,0,0.5); 
+    text-align: center;
+    padding: 0 15px;
 }
 
 .home-grid { 
@@ -223,7 +224,7 @@ header {
     overflow: hidden;
     justify-content: center; 
     align-items: center;
-    display: none; /* Hidden by default until live stream joins */
+    display: none; 
 }
 .cam-box video { 
     width: 100%; 
@@ -615,7 +616,8 @@ body.sidebar-open .settings-popup-card {
     align-items: center; 
     margin-left: 0;
 }
-.volume-control-wrapper:hover .volume-slider-container {
+.volume-control-wrapper:hover .volume-slider-container, 
+.volume-control-wrapper:focus-within .volume-slider-container {
     width: 80px; 
     opacity: 1; 
     margin-left: 8px; 
@@ -668,27 +670,470 @@ body.sidebar-open .settings-popup-card {
     margin-bottom: 10px;
 }
 
+/* --- DYNAMIC LIVE LOBBY STREAM CARDS --- */
+.home-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    max-width: 960px !important;
+    width: 100%;
+    max-height: 65vh;
+    overflow-y: auto;
+    padding: 10px 20px;
+}
+
+.live-class-card {
+    background: #1e1e1e;
+    border: 2px solid #333;
+    border-radius: 14px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+    color: #fff;
+    text-align: left;
+    position: relative;
+}
+
+.live-class-card:hover {
+    border-color: var(--brand-accent);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 30px rgba(242, 109, 33, 0.25);
+}
+
+.card-header-badge {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.live-pill {
+    background: var(--live-red);
+    color: white;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.8px;
+    animation: pulse 1.5s infinite;
+}
+
+.learner-count {
+    background: #2a2a2a;
+    color: #bbb;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid #3a3a3a;
+}
+
+.stream-card-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #fff;
+    line-height: 1.3;
+}
+
+.stream-card-id {
+    font-size: 11px;
+    color: #777;
+    font-family: monospace;
+}
+
+.lobby-empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 50px 20px;
+    background: #181818;
+    border: 1px dashed #333;
+    border-radius: 16px;
+    color: #888;
+}
+
+.lobby-empty-state h3 {
+    color: #dedede;
+    margin-bottom: 6px;
+    font-size: 18px;
+}
+
+/* --- 1. COLLAPSIBLE RIGHT COLUMN --- */
+.live-right-column {
+    width: 280px;
+    background: #141414;
+    border-left: 1px solid #282828;
+    display: flex;
+    flex-direction: column;
+    z-index: 85;
+    flex-shrink: 0;
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+}
+
+/* When collapsed via the bottom arrow */
+body.chat-collapsed .live-right-column {
+    width: 0px !important;
+    border-left: none !important;
+}
+
+/* --- 2. WEBCAM DOCKED vs FLOATING PIP TRANSITION --- */
+.cam-dock-slot {
+    width: 100%;
+    height: 158px;
+    background: #0a0a0a;
+    border-bottom: 1px solid #282828;
+    position: relative;
+    flex-shrink: 0;
+}
+
+/* DOCKED STATE (Chat is ON) - Drag Disabled */
+.cam-box.docked {
+    width: 100%;
+    height: 100%;
+    background: #000;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: default !important; /* Removes the move cursor */
+    pointer-events: none; /* Blocks JavaScript mousedown/drag events */
+}
+
+.cam-box video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Floating PIP Overlay State (When Chat is Collapsed) */
+.cam-box.floating-pip {
+    position: absolute !important;
+    /* REMOVED !important from top/right so JS drag logic can freely update the Y-axis */
+    top: 20px; 
+    right: 20px; 
+    width: 240px !important;
+    height: 135px !important;
+    border-radius: 8px !important;
+    border: 2px solid #333 !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important;
+    z-index: 9999 !important;
+    cursor: move !important;
+    pointer-events: auto !important; /* Re-enables interaction for dragging */
+}
+
+/* --- 3. CHAT BOX STYLES --- */
+.chat-manager {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #141414;
+    overflow: hidden;
+}
+
+.chat-header {
+    padding: 12px 14px;
+    font-size: 13px;
+    font-weight: bold;
+    color: #e5e7eb;
+    border-bottom: 1px solid #222;
+    background: #1a1a1a;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.chat-messages .sys-msg {
+    color: #666;
+    font-style: italic;
+    text-align: center;
+    font-size: 11px;
+}
+
+.chat-msg {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: #222;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border-left: 3px solid #555;
+}
+
+.chat-msg.educator-msg {
+    border-left-color: var(--brand-accent);
+    background: #281a14;
+}
+
+.chat-msg .sender {
+    font-size: 10px;
+    font-weight: bold;
+    color: #aaa;
+}
+
+.chat-msg.educator-msg .sender {
+    color: var(--brand-accent);
+}
+
+.chat-msg .text {
+    color: #eee;
+    word-break: break-word;
+    line-height: 1.3;
+}
+
+.chat-input-area {
+    display: flex;
+    padding: 10px;
+    background: #181818;
+    border-top: 1px solid #222;
+    gap: 8px;
+}
+
+.chat-input-area input {
+    flex: 1;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 8px 10px;
+    color: white;
+    font-size: 12px;
+    outline: none;
+}
+
+.chat-input-area button {
+    background: var(--brand-accent);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+/* --- 4. FAR RIGHT EDGE DOCK RAIL --- */
+.side-rail-dock {
+    width: 44px;
+    background: #1a1a1a;
+    border-left: 1px solid #282828;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    z-index: 90;
+    flex-shrink: 0;
+}
+
+.rail-top, .rail-bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    align-items: center;
+}
+
+.rail-icon-btn {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 18px;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.15s;
+}
+
+.rail-icon-btn:hover, .rail-icon-btn.active {
+    background: #2a2a2a;
+    color: #fff;
+}
+
+/* Bottom Collapse Arrow Button */
+.rail-arrow-btn {
+    background: #242424;
+    border: 1px solid #383838;
+    color: #dedede;
+    font-size: 14px;
+    cursor: pointer;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.rail-arrow-btn:hover {
+    background: var(--brand-accent);
+    color: white;
+    border-color: var(--brand-accent);
+}
+
 /* ==========================================================================
    DYNAMIC MOBILE & TABLET RESPONSIVE OVERRIDES
    ========================================================================== */
-@media only screen and (max-width: 800px) {
+
+/* --- TABLET & SMALL DESKTOP --- */
+@media only screen and (max-width: 1024px) {
+    .sidebar {
+        width: 250px;
+    }
+    .live-right-column {
+        width: 240px;
+    }
+    .home-grid {
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    }
+}
+
+/* --- MOBILE PHONES --- */
+@media only screen and (max-width: 768px) {
+    body {
+        overflow-y: auto; /* Required so users can scroll through stacked components */
+    }
+    
     .app-body { 
         flex-direction: column !important; 
+        height: auto;
+        min-height: calc(100vh - 50px);
+        overflow: visible;
     }
+
+    /* 1. Whiteboard drops to the top with a 16:9 ratio */
     .central-workspace { 
-        height: 50vh !important; 
-        padding-bottom: 0 !important;
+        width: 100% !important;
+        height: auto !important; 
+        aspect-ratio: 16 / 9;
+        min-height: 35vh;
+        padding: 10px !important;
+        flex: none; /* Disables flex stretch so aspect ratio holds */
     }
+
+    /* 2. Restructures YouTube Controls for narrow widths */
+    .modern-playback-panel {
+        padding-top: 5px;
+        position: relative; 
+    }
+    .yt-controls-layout {
+        padding: 4px 10px;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    /* 3. Forces Volume Slider to always be visible (since there's no hover on mobile) */
+    .volume-slider-container {
+        width: 65px; 
+        opacity: 1; 
+        margin-left: 8px; 
+    }
+    .volume-control-wrapper #btnModernMuteToggle {
+        background: rgba(255, 255, 255, 0.15); 
+        color: #ffffff;
+    }
+
+    /* 4. Slides right-column (chat) underneath the workspace */
+    .live-right-column { 
+        width: 100% !important; 
+        height: 50vh !important;
+        border-left: none !important;
+        border-top: 1px solid #282828;
+        flex: 1;
+    }
+
+    /* 5. Slides Sidebar (files) underneath the workspace */
     .sidebar { 
         width: 100% !important; 
-        height: 50vh !important; 
+        height: auto !important; 
+        max-height: 40vh;
         border-left: none !important; 
         border-top: 1px solid var(--p-border);
+        flex: none;
     }
-    .cam-box {
-        width: 140px !important;
-        height: 80px !important;
-        top: 10px !important;
+
+    /* 6. Turns vertical side rail into a horizontal bottom navigation bar */
+    .side-rail-dock {
+        width: 100%;
+        height: 50px;
+        flex-direction: row;
+        border-left: none;
+        border-top: 1px solid #282828;
+        padding: 0 15px;
+        box-sizing: border-box;
+    }
+    .rail-top, .rail-bottom {
+        flex-direction: row;
+        gap: 15px;
+    }
+
+    /* 7. PIP Webcams shrink significantly on small screens */
+    .cam-box.floating-pip, .cam-box {
+        width: 110px !important;
+        height: 62px !important; 
+        top: 10px ;
+        right: 10px ;
+        border-width: 1px !important;
+    }
+    .cam-dock-slot {
+        height: auto;
+        aspect-ratio: 16 / 9;
+    }
+
+    /* 8. Fixes settings popup bleeding off the screen edge */
+    .settings-popup-card {
         right: 10px !important;
+        bottom: 60px !important;
+        width: 230px;
+    }
+
+    /* 9. Lobby Responsive Adjustments */
+    .home-title {
+        font-size: 26px;
+        text-align: center;
+    }
+    .home-grid {
+        grid-template-columns: 1fr;
+        padding: 10px;
+        max-height: none;
+    }
+}
+
+/* --- VERY SMALL MOBILE DEVICES --- */
+@media only screen and (max-width: 480px) {
+    .header-left {
+        font-size: 12px;
+        gap: 8px;
+    }
+    .hdr-btn {
+        padding: 4px 8px;
+        font-size: 10px;
+    }
+    .yt-left-cluster, .yt-right-cluster {
+        gap: 6px;
+    }
+    .ctrl-icon-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
+    }
+    /* Hides runtime label string to clear space for core playback controls */
+    .modern-time-label {
+        display: none; 
     }
 }

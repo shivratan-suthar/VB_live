@@ -11,7 +11,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
 
-    <!-- NEW: Real-Time Live Streaming Libraries -->
+    <!-- Real-Time Live Streaming Libraries -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
@@ -19,15 +19,17 @@
 </head>
 <body>
 
-   <div id="orientationOverlay" class="orientation-warning">
-        <div class="rotate-icon">📱</div>
-        <h2>Tip: Rotate Your Screen</h2>
-        <p>For the best drawing experience and wider canvas proportions, we recommend rotating your device horizontally.</p>
-        
-        <div style="margin-top: 25px;">
-            <button id="btnDismissOrientation" style="background: var(--brand-accent); color: white; border: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(242, 109, 33, 0.4);">
-                Got It, Continue
-            </button>
+   
+    <!-- Live Class Setup Modal -->
+    <div id="liveSetupModal">
+        <div class="live-modal-box">
+            <h3>🔴 Start Live Classroom</h3>
+            <p>Enter a topic or class title. This will be displayed in the live lobby for students to join.</p>
+            <input type="text" id="liveClassTitleInput" class="live-modal-input" placeholder="e.g., Physics 101: Thermodynamics" maxlength="60">
+            <div class="live-modal-actions">
+                <button class="modal-btn cancel" id="btnCancelLiveModal">Cancel</button>
+                <button class="modal-btn confirm" id="btnConfirmLiveStart">Start Broadcasting</button>
+            </div>
         </div>
     </div>
 
@@ -35,9 +37,12 @@
         <div class="header-left">
             <a href="index.html" target="_blank" class="hdr-btn">🏠 INDEX DASHBOARD</a>
             <div class="live-badge" id="btnLiveToggle">🔴 Start Live Room</div>
+            
+            <!-- Live Student Attendance Counter Pill -->
+            <div class="attendance-badge hidden" id="liveAttendanceCounter">👥 0 Watching</div>
         </div>
 
-        <span id="classroomStateHeadingTitle">Educater's Board</span>
+        <span id="classroomStateHeadingTitle">Educator's Board</span>
 
         <div class="header-right">
             <span class="timer-display" id="topTimer">00:00:00</span>
@@ -47,6 +52,21 @@
     </header>
 
     <div class="app-body">
+        <!-- 1. LEFT COLUMN: Slide Manager & Upload -->
+        <div class="left-sidebar">
+            <div class="file-manager">
+                <div class="fm-header">
+                    <span>SLIDE DECK SORTER</span>
+                    <label class="upload-btn-custom" style="cursor: pointer; font-size: 11px; background: #333; padding: 4px 8px; border-radius: 4px; color: white;">
+                        ➕ Upload
+                        <input type="file" id="sideFileLoader" accept="image/*, application/pdf" multiple style="display:none;">
+                    </label>
+                </div>
+                <div class="file-list" id="fileRegistryContainer"></div>
+            </div>
+        </div>
+
+        <!-- 2. CENTER COLUMN: Main Drawing Workspace -->
         <div class="central-workspace" id="workspaceContainer">
             <div class="floating-palette">
                 <div class="palette-group" id="colorPalette">
@@ -122,24 +142,27 @@
             </div>
         </div>
 
+        <!-- 3. RIGHT COLUMN: Webcam & Live Chatbox -->
+        <!-- RIGHT COLUMN: Webcam & Live Chatbox -->
         <div class="sidebar">
             <div class="cam-box">
                 <div id="camPlaceholderText" class="cam-placeholder">📷 Camera & Mic Standby<br><span>Click 'Toggle Cam' to allow access</span></div>
-                
-                <div class="hardware-error-notice hidden" id="camHardwareErrorNotice">Camera hardware access block listed or unauthorized. Recording blank template frames.</div>
+                <div class="hardware-error-notice hidden" id="camHardwareErrorNotice">Camera access denied.</div>
                 <video id="webcamVideoFeed" autoplay muted playsinline></video>
                 <div class="mic-overlay-toggle" id="btnMute">🎙️ Mute</div>
                 <div class="cam-overlay-toggle" id="btnToggleCam">📷 Toggle Cam</div>
             </div>
-            <div class="file-manager">
-                <div class="fm-header">
-                    <span>DOCUMENT CONTAINER SORTER</span>
-                    <label class="upload-btn-custom" style="cursor: pointer; float: right; font-size: 11px; background: #333; padding: 4px 8px; border-radius: 4px;">
-                        ➕ Upload Slide
-                        <input type="file" id="sideFileLoader" accept="image/*, application/pdf" multiple style="display:none;">
-                    </label>
+            
+            <!-- NEW: Real-Time Classroom Chat Box -->
+            <div class="chat-manager">
+                <div class="chat-header">💬 LIVE CLASSROOM CHAT</div>
+                <div class="chat-messages" id="liveChatMessages">
+                    <div class="sys-msg">Room broadcast ready. Messages will appear here.</div>
                 </div>
-                <div class="file-list" id="fileRegistryContainer"></div>
+                <div class="chat-input-area">
+                    <input type="text" id="liveChatInput" placeholder="Message your learners..." maxlength="150">
+                    <button id="btnSendChat">Send</button>
+                </div>
             </div>
         </div>
     </div>

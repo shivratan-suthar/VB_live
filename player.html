@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Learner's Board - Live Room</title>
     
-    <!-- Core Application Libraries -->
+    <!-- Core Application Libraries[cite: 2] -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-    <!-- NEW: Real-Time Live Streaming Libraries -->
+    <!-- Real-Time Live Streaming Libraries[cite: 2] -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
@@ -20,56 +20,47 @@
 </head>
 <body>
 
-    <!-- SCREEN 1: LIVE CLASSROOM JOIN HUB -->
+    <!-- SCREEN 1: LIVE CLASSROOM JOIN HUB[cite: 2] -->
     <div class="home-screen" id="homeViewContainer">
         <div class="home-title">Learner's Live Board</div>
-        <div class="home-grid">
-            <div class="home-card" id="btnJoinLiveClassroom" style="cursor: pointer;">
-                <div class="card-icon">📡</div>
-                <div class="card-title">Join Live Classroom</div>
-                <div class="card-desc">Connect directly to the educator's live video stream and real-time synchronized vector whiteboard.</div>
+        <div style="font-size: 13px; color: #888; margin-top: -25px; margin-bottom: 25px;">
+            Select an active class stream below to join real-time
+        </div>
+        
+        <!-- Dynamic streams injected here by player2.js[cite: 2] -->
+        <div class="home-grid" id="liveClassesGrid">
+            <div class="lobby-empty-state">
+                <h3>Scanning for live sessions...</h3>
+                <p>Please wait while we connect to the server.</p>
             </div>
         </div>
     </div>
 
-    <!-- TOP RUNTIME HEADER -->
+    <!-- TOP RUNTIME HEADER[cite: 2] -->
     <header>
         <div class="header-left">
+            <button class="hdr-btn" id="btnBackToHomeMenu" title="Exit to Lobby">← Lobby</button>
             <span id="classroomStateHeadingTitle">Learner's Live Board</span>
         </div>
     </header>
 
-    <!-- MAIN WORKSPACE -->
+    <!-- MAIN WORKSPACE[cite: 2] -->
     <div class="app-body">
+        
+        <!-- 1. CENTER COLUMN: Main Drawing Workspace & YouTube Toolbar[cite: 2] -->
         <div class="central-workspace">
-            
             <div class="board-wrapper" id="canvasContainer">
                 <div id="playbackCursor"></div>
-                
-<div class="cam-box" id="webcamContainerWrapperBox">
-    <!-- NEW: Black background overlay when camera is turned off -->
-    <div id="studentCamPlaceholder" style="display: none; width: 100%; height: 100%; background: #000000; position: absolute; top: 0; left: 0; z-index: 10; justify-content: center; align-items: center; flex-direction: column; color: #ffffff; font-size: 13px; font-weight: bold; letter-spacing: 0.5px; border-radius: 6px;">
-        📷 Camera Off
-    </div>
-    <!-- player.html -->
-<video id="webcamVideoFeed" autoplay playsinline></video>
-</div>
                 <canvas id="fabricCanvas"></canvas>
             </div>
 
-            <!-- YOUTUBE-STYLE TIMELINE CONTROLS PANEL -->
+            <!-- YOUTUBE-STYLE TIMELINE CONTROLS PANEL[cite: 2] -->
             <div class="modern-playback-panel" id="studioPlaybackPlayerToolbarUI">
-                
-                <div class="yt-timeline-container">
-                    <input type="range" id="playerMasterTimelineSliderScrubber" class="modern-playback-slider" min="0" max="100" value="0" step="0.01">
-                </div>
-                
+                                
                 <div class="yt-controls-layout">
                     <div class="yt-left-cluster">
                         <button class="ctrl-icon-btn" id="btnPlayerExitToMenu" title="Exit Player" style="font-size: 16px;">←</button>
-                        <button class="ctrl-icon-btn" id="btnRewindTenSeconds" title="Rewind 10s">⟲</button>
                         <button class="ctrl-icon-btn" id="btnModernPlayPause" style="font-size: 22px;">▶</button>
-                        <button class="ctrl-icon-btn" id="btnForwardTenSeconds" title="Forward 10s">⟳</button>
                         
                         <div class="volume-control-wrapper" style="margin-left: 5px;">
                             <button class="ctrl-icon-btn" id="btnModernMuteToggle" title="Mute/Unmute" style="margin-left: 0;">🔊</button>
@@ -81,25 +72,18 @@
                     </div>
 
                     <div class="yt-right-cluster">
-                        <button class="ctrl-icon-btn" id="btnModernSettingsTrigger" title="Playback Settings">⚙️</button>
-                        <button class="ctrl-icon-btn" id="btnModernFullscreenToggle" title="Full Screen">⛶</button>
+                                                <button class="ctrl-icon-btn" id="btnModernFullscreenToggle" title="Full Screen">⛶</button>
                     </div>
                 </div>
                 
-                <!-- FLOATING SETTINGS CARD POPUP -->
+                <!-- FLOATING SETTINGS CARD POPUP[cite: 2] -->
                 <div class="settings-popup-card" id="modernSettingsCardPopup">
                     <div id="settingsPopupMainLayer">
                         <div class="settings-option-row" id="btnTriggerSpeedSubmenu">
                             <span>Playback speed</span>
                             <span class="settings-value-label" id="lblSpeedValueDisplay">1x &gt;</span>
                         </div>
-                        <div class="settings-option-row" id="rowToggleSlideMode">
-                            <span>Slide mode</span>
-                            <div class="toggle-switch-pill">
-                                <span class="toggle-pill-opt" id="pillSlideModeOn">On</span>
-                                <span class="toggle-pill-opt active" id="pillSlideModeOff">Off</span>
-                            </div>
-                        </div>
+                        
                     </div>
 
                     <div id="settingsPopupSpeedLayer" class="hidden">
@@ -114,14 +98,10 @@
                         <div class="speed-selection-item" data-val="2.0"><span class="speed-check-icon"></span>2x</div>
                     </div>
                 </div>
-
-                <div class="playback-info-footer">
-                    <div class="playback-brand-signature"></div>
-                </div>
             </div>
         </div>
 
-        <!-- SIDEBAR DECK TRACKER -->
+        <!-- SIDEBAR DECK TRACKER (Slide Mode Panel - Hidden by default)[cite: 2] -->
         <div class="sidebar slide-mode-hidden" id="appWorkspaceSidebarColumnPanel">
             <div class="file-manager">
                 <div class="fm-header">
@@ -152,6 +132,44 @@
                 </div>
             </div>
         </div>
+
+        <!-- 2. COLLAPSIBLE RIGHT COLUMN: Docked Webcam Slot & Live Chatbox[cite: 2] -->
+        <div class="live-right-column" id="liveRightColumn">
+            <!-- Webcam docks inside here when chat column is open[cite: 2] -->
+            <div class="cam-dock-slot" id="camDockSlot">
+                <div class="cam-box docked" id="webcamContainerWrapperBox">
+                    <div id="studentCamPlaceholder" style="display: none; width: 100%; height: 100%; background: #000; position: absolute; top: 0; left: 0; z-index: 10; justify-content: center; align-items: center; flex-direction: column; color: #fff; font-size: 13px; font-weight: bold; letter-spacing: 0.5px; border-radius: 6px;">
+                        📷 Camera Off
+                    </div>
+                    <!-- Added 'muted' attribute to prevent browser autoplay blocking -->
+                    <video id="webcamVideoFeed" autoplay playsinline ></video>
+                </div>
+            </div>
+
+            <!-- Live Chat Box[cite: 2] -->
+            <div class="chat-manager" id="playerChatContainer">
+                <div class="chat-header">💬 Chat</div>
+                <div class="chat-messages" id="playerChatMessages">
+                    <div class="sys-msg">Welcome to live chat! Be respectful.</div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" id="playerChatInput" placeholder="Send a message..." maxlength="150">
+                    <button id="btnSendPlayerChat">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. FAR RIGHT EDGE RAIL (Rodha Screenshot Style)[cite: 2] -->
+        <div class="side-rail-dock">
+            <div class="rail-top">
+                <button class="rail-icon-btn active" id="btnRailChatToggle" title="Live Chat">💬</button>
+                <button class="rail-icon-btn" title="Help & Support"></button>
+            </div>
+            <div class="rail-bottom">
+                <button class="rail-arrow-btn" id="btnToggleRightSidebar" title="Collapse Sidebar">➔</button>
+            </div>
+        </div>
+
     </div>
 
     <script src="player1.js"></script>

@@ -18,8 +18,13 @@ window.settingsCard = document.getElementById('modernSettingsCardPopup');
 const dragBox = document.getElementById('webcamContainerWrapperBox');
 
 // --- 16:9 CANVAS RESPONSIVE LOCK ---
+// Update this specific function inside player1.js
 window.syncCanvasDimensionsToWrapper = () => {
     if (!window.parentContainer) return;
+    
+    // GUARD CLAUSE: Prevent layout collapse when the window is hidden or out of focus
+    if (window.parentContainer.clientWidth === 0 || window.parentContainer.clientHeight === 0) return;
+
     const targetRatio = 16 / 9; 
     const containerRatio = window.parentContainer.clientWidth / window.parentContainer.clientHeight;
     let newWidth = (containerRatio > targetRatio) ? window.parentContainer.clientHeight * targetRatio : window.parentContainer.clientWidth;
@@ -40,20 +45,26 @@ window.syncCanvasDimensionsToWrapper = () => {
 };
 window.addEventListener('resize', window.syncCanvasDimensionsToWrapper);
 
-// --- DRAGGABLE WEBCAM PIP BOX ---
+// --- DRAGGABLE WEBCAM PIP BOX (WITH TOUCH SUPPORT) ---
 let isDragging = false; let startX, startY, initialLeft, initialTop;
-if (dragBox) {
-    dragBox.addEventListener('mousedown', (e) => {
-        if (window.isSlideModeActive) return;
-        isDragging = true; startX = e.clientX; startY = e.clientY;
-        initialLeft = dragBox.offsetLeft; initialTop = dragBox.offsetTop;
-        e.preventDefault();
-    });
-}
-window.addEventListener('mousemove', (e) => {
+
+const startDragHandler = (e) => {
+    if (window.isSlideModeActive) return;
+    isDragging = true;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    startX = clientX; startY = clientY;
+    initialLeft = dragBox.offsetLeft; initialTop = dragBox.offsetTop;
+    if (!e.touches) e.preventDefault();
+};
+
+const moveDragHandler = (e) => {
     if (!isDragging || window.isSlideModeActive || !dragBox) return;
-    let targetLeft = initialLeft + (e.clientX - startX); 
-    let targetTop = initialTop + (e.clientY - startY);
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    let targetLeft = initialLeft + (clientX - startX); 
+    let targetTop = initialTop + (clientY - startY);
     const containerW = window.parentContainer.clientWidth; const containerH = window.parentContainer.clientHeight;
     const elementW = dragBox.offsetWidth; const elementH = dragBox.offsetHeight;
 
@@ -63,8 +74,18 @@ window.addEventListener('mousemove', (e) => {
     if (targetTop > containerH - (elementH / 2)) targetTop = containerH - (elementH / 2);
 
     dragBox.style.left = targetLeft + 'px'; dragBox.style.top = targetTop + 'px'; dragBox.style.right = 'auto';
-});
-window.addEventListener('mouseup', () => { isDragging = false; });
+};
+
+const stopDragHandler = () => { isDragging = false; };
+
+if (dragBox) {
+    dragBox.addEventListener('mousedown', startDragHandler);
+    dragBox.addEventListener('touchstart', startDragHandler, { passive: true });
+}
+window.addEventListener('mousemove', moveDragHandler);
+window.addEventListener('touchmove', moveDragHandler, { passive: false });
+window.addEventListener('mouseup', stopDragHandler);
+window.addEventListener('touchend', stopDragHandler);
 
 // --- SLIDE DECK SORTER UI ---
 window.renderFlatSlideSorterUI = function() {
@@ -75,7 +96,7 @@ window.renderFlatSlideSorterUI = function() {
     window.globalSlidesDeck.forEach((slide, index) => {
         const card = document.createElement('div');
         card.className = `file-card ${index === window.activeSlideIndex ? 'playing-active' : ''}`;
-        card.setAttribute('onclick', `window.jumpToSlideIndex(${index}, event)`);
+        card.setAttribute('onclick', `window.jumpToSlideIndex(${index})`);
         const playCircleOverlayIcon = window.isSlideModeActive ? '<div class="play-overlay">▶</div>' : '';
         
         let previewSrc = slide.thumbnail;
@@ -94,15 +115,15 @@ window.renderFlatSlideSorterUI = function() {
     }
 };
 
-window.applySlideBackground = function(slide) {
+window.applySlideBackground = function(slide, customCanvas = window.canvas) {
     if (!slide) return;
     if (slide.sourceUrl) {
         fabric.Image.fromURL(slide.sourceUrl, img => { 
             img.scaleToWidth(1920); // MASTER 1920 VIRTUAL LOCK
-            window.canvas.setBackgroundImage(img, window.canvas.renderAll.bind(window.canvas)); 
+            customCanvas.setBackgroundImage(img, customCanvas.renderAll.bind(customCanvas)); 
         }, { crossOrigin: 'anonymous' });
     } else { 
-        window.canvas.setBackgroundImage(null, window.canvas.renderAll.bind(window.canvas)); 
+        customCanvas.setBackgroundImage(null, customCanvas.renderAll.bind(customCanvas)); 
     }
 };
 
@@ -189,7 +210,9 @@ document.getElementById('btnToggleAnnotationsVectorVisibility')?.addEventListene
     }
     
     window.canvas.forEachObject(obj => { 
-        obj.visible = (obj.slideIndex === window.activeSlideIndex && window.areAnnotationsVisible); 
+        // FIX 4: Support safety fallback if an element lacks an explicit slideIndex assignment
+        const isCurrentSlide = obj.slideIndex === undefined || obj.slideIndex === window.activeSlideIndex;
+        obj.visible = (isCurrentSlide && window.areAnnotationsVisible); 
     }); 
     window.canvas.renderAll();
     window.renderFlatSlideSorterUI(); 
@@ -197,7 +220,8 @@ document.getElementById('btnToggleAnnotationsVectorVisibility')?.addEventListene
 
 // --- FULLSCREEN TOGGLE ---
 document.getElementById('btnModernFullscreenToggle')?.addEventListener('click', () => {
-    const workspace = document.querySelector('.central-workspace');
+    // Change selector target from '.central-workspace' to '.app-body'
+    const workspace = document.querySelector('.app-body');
     if (!document.fullscreenElement && workspace) { 
         workspace.requestFullscreen().then(() => { setTimeout(window.syncCanvasDimensionsToWrapper, 100); }); 
     } else if (document.fullscreenElement) { 
@@ -261,24 +285,29 @@ document.getElementById('btnDownloadPdf')?.addEventListener('click', async funct
             const slide = window.globalSlidesDeck[i];
             exportCanvas.clear();
 
-            if (slide.sourceUrl) {
-                await new Promise((resolve) => {
-                    fabric.Image.fromURL(slide.sourceUrl, (img) => {
-                        img.scaleToWidth(1920);
-                        exportCanvas.setBackgroundImage(img, exportCanvas.renderAll.bind(exportCanvas));
-                        resolve();
-                    }, { crossOrigin: 'anonymous' }); 
-                });
-            }
-
+            // FIX 1: Load annotations JSON layer FIRST before backgrounds to stop data erasure
             if (window.areAnnotationsVisible && slide.annotation) {
                 await new Promise((resolve) => {
                     exportCanvas.loadFromJSON(slide.annotation, () => {
                         exportCanvas.forEachObject(obj => { obj.visible = true; }); 
-                        exportCanvas.renderAll();
                         resolve();
                     });
                 });
+            }
+
+            // Load background layer second, confirming it sits underneath perfectly
+            if (slide.sourceUrl) {
+                await new Promise((resolve) => {
+                    fabric.Image.fromURL(slide.sourceUrl, (img) => {
+                        img.scaleToWidth(1920);
+                        exportCanvas.setBackgroundImage(img, () => {
+                            exportCanvas.renderAll();
+                            resolve();
+                        });
+                    }, { crossOrigin: 'anonymous' }); 
+                });
+            } else {
+                exportCanvas.renderAll();
             }
 
             const imgData = exportCanvas.toDataURL({ format: 'jpeg', quality: 0.8 });
@@ -300,45 +329,70 @@ document.getElementById('btnDownloadPdf')?.addEventListener('click', async funct
 
 // --- RETURN TO HOME HUB & CLEAN UP LIVE STREAMS ---
 function exitPlayerToHomeHub() {
-    // 1. Disconnect WebRTC / Socket streams if connected
-    if (window.liveSocket) {
-        window.liveSocket.disconnect();
+    if (window.liveSocket && window.ROOM_ID) {
+        window.liveSocket.emit('leave-room', window.ROOM_ID);
     }
+    window.ROOM_ID = null;
+
     if (window.peerCall) {
         window.peerCall.close();
     }
 
-    // 2. Stop video playback and clear source
     if (window.camVideoFeed) {
         window.camVideoFeed.pause();
         window.camVideoFeed.srcObject = null;
         window.camVideoFeed.src = "";
     }
     
-    // 3. Exit Fullscreen mode if active
     if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
     }
     
-    // 4. Wipe canvas clear
     if (window.canvas) {
         window.canvas.clear();
         window.canvas.setBackgroundImage(null, window.canvas.renderAll.bind(window.canvas));
     }
     
-    // 5. Hide tracking cursor and reset UI text
     if (window.playPauseBtn) window.playPauseBtn.textContent = "▶";
     const cursorEl = document.getElementById('playbackCursor');
     if (cursorEl) cursorEl.style.display = 'none';
     if (dragBox) dragBox.style.display = 'none';
+
+    // FIX 2: Clear workspace layout side-effects out of DOM to reset subsequent class instances
+    document.body.classList.remove('chat-collapsed', 'sidebar-open');
+    if (dragBox) {
+        dragBox.classList.remove('floating-pip');
+        dragBox.classList.add('docked');
+        const camDockSlot = document.getElementById('camDockSlot');
+        if (camDockSlot) camDockSlot.appendChild(dragBox);
+        dragBox.style.left = ''; dragBox.style.top = '';
+    }
     
-    // 6. Unhide the initial Live Join Hub
     const homeView = document.getElementById('homeViewContainer');
     if (homeView) homeView.classList.remove('hidden');
-}
 
+    if (typeof window.fetchActiveClasses === 'function') {
+        window.fetchActiveClasses();
+    }
+}
 const exitToolbarBtn = document.getElementById('btnPlayerExitToMenu');
 const exitHeaderBtn = document.getElementById('btnBackToHomeMenu');
 
 if (exitToolbarBtn) exitToolbarBtn.addEventListener('click', exitPlayerToHomeHub);
 if (exitHeaderBtn) exitHeaderBtn.addEventListener('click', exitPlayerToHomeHub);
+// Add this block near the bottom of player1.js (e.g., above the volume controls)
+if (window.playPauseBtn && window.camVideoFeed) {
+    window.playPauseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (window.camVideoFeed.paused) {
+            window.camVideoFeed.play()
+                .then(() => {
+                    window.playPauseBtn.textContent = "⏸";
+                })
+                .catch(err => console.error("Playback resume failed:", err));
+        } else {
+            window.camVideoFeed.pause();
+            window.playPauseBtn.textContent = "▶";
+        }
+    });
+}

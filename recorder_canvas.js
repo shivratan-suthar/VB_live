@@ -45,8 +45,9 @@ const syncWorkspaceBoardBoundsCalculations = () => {
     let newWidth = (containerRatio > targetRatio) ? parent.clientHeight * targetRatio : parent.clientWidth;
     let newHeight = (containerRatio > targetRatio) ? parent.clientHeight : parent.clientWidth / targetRatio;
     
-    const renderW = newWidth * 0.96;
-    const renderH = newHeight * 0.96;
+    // CHANGED: Increased from 0.96 to 0.99 to eliminate excess black margins around the board
+    const renderW = newWidth * 0.99;
+    const renderH = newHeight * 0.99;
     
     canvas.setWidth(renderW); 
     canvas.setHeight(renderH); 
@@ -293,8 +294,17 @@ canvas.on('mouse:move', (o) => {
     if (isRightClickErasing || isLeftClickErasing) { swipeEraseTarget(o); return; }
     const p = canvas.getPointer(o.e); const now = Date.now(); const rx = Math.round(p.x); const ry = Math.round(p.y);
     
-    if (window.liveSocket && (now - (window.lastLiveCursorEmit || 0) > 35)) { window.liveSocket.emit('board-action', window.ROOM_ID || 'classroom-room-101', { type: 'cursor', x: rx, y: ry }); window.lastLiveCursorEmit = now; }
-    if (isUserDrawingCurrently && window.liveSocket && (now - (window.lastLiveDrawEmit || 0) > 20)) { window.liveSocket.emit('board-action', window.ROOM_ID || 'classroom-room-101', { type: 'draw-move', x: rx, y: ry, tool: activeTool, color: activeColor }); window.lastLiveDrawEmit = now; }
+    // Only emit drawing actions if the broadcast session is actively live
+    if (window.isRecording && window.liveSocket && window.ROOM_ID) {
+        if (now - (window.lastLiveCursorEmit || 0) > 35) { 
+            window.liveSocket.emit('board-action', window.ROOM_ID, { type: 'cursor', x: rx, y: ry }); 
+            window.lastLiveCursorEmit = now; 
+        }
+        if (isUserDrawingCurrently && (now - (window.lastLiveDrawEmit || 0) > 20)) { 
+            window.liveSocket.emit('board-action', window.ROOM_ID, { type: 'draw-move', x: rx, y: ry, tool: activeTool, color: activeColor }); 
+            window.lastLiveDrawEmit = now; 
+        }
+    }
 
     if (window.isRecording && (now - (window.lastCursorLogTime || 0) > 25)) { if (window.jsonDrawingTimelineLog) window.jsonDrawingTimelineLog.push([now - (window.recordStartTime || 0), 'c', rx, ry]); window.lastCursorLogTime = now; }
     if (window.isRecording && isUserDrawingCurrently) { if (window.jsonDrawingTimelineLog) window.jsonDrawingTimelineLog.push([now - (window.recordStartTime || 0), 'd', rx, ry]); }
@@ -307,7 +317,6 @@ canvas.on('mouse:move', (o) => {
     else if (activeShapeType === 'cube') tempDrawingShape.set({ scaleX: Math.max(0.1, Math.abs(p.x - shapeStartX) / 100), scaleY: Math.max(0.1, Math.abs(p.y - shapeStartY) / 100) });
     canvas.renderAll();
 });
-
 canvas.on('mouse:up', (o) => { 
     if (o.e.button === 2) { isRightClickErasing = false; canvas.renderAll(); saveHistoryState(); saveCurrentSlideState(); return; }
     if (activeTool === 'eraser') { isLeftClickErasing = false; canvas.renderAll(); saveHistoryState(); saveCurrentSlideState(); return; }
