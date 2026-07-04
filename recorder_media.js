@@ -42,8 +42,23 @@ if (btnMute) btnMute.classList.add('is-muted');
 window.educatorPeer = new Peer(EDUCATOR_PEER_ID, {
     config: {
         iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
+{ urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            
+            // 2. Add TURN to relay video when 4G/5G firewalls block direct P2P
+            { 
+                urls: 'turn:a.relay.metered.ca:80', 
+                username: 'YOUR_TURN_USERNAME_HERE', 
+                credential: 'YOUR_TURN_PASSWORD_HERE' 
+            },
+            { 
+                urls: 'turn:a.relay.metered.ca:443?transport=tcp', 
+                username: 'YOUR_TURN_USERNAME_HERE', 
+                credential: 'YOUR_TURN_PASSWORD_HERE' 
+            }
+           
+
+
         ]
     }
 });
