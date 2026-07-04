@@ -10,7 +10,7 @@ const EDUCATOR_PEER_ID = 'educator-' + window.ROOM_ID;
 const LEARNER_PEER_ID = 'learner-' + Math.floor(Math.random() * 100000);
 
 // With your secure ngrok URL + bypass header:
-const liveSocket = io('https://cleaver-twerp-unfitted.ngrok-free.dev', {
+const liveSocket = io('https://vector-board.duckdns.org', {
     extraHeaders: {
         "ngrok-skip-browser-warning": "true"
     }
@@ -19,21 +19,26 @@ const liveSocket = io('https://cleaver-twerp-unfitted.ngrok-free.dev', {
 // Configure PeerJS with reliable Google STUN servers for network traversal
 const peer = new Peer(LEARNER_PEER_ID, {
     config: {
-        iceServers: [
-{ urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            
-            // 2. Add TURN to relay video when 4G/5G firewalls block direct P2P
-            { 
-                urls: 'turn:a.relay.metered.ca:80', 
-                username: 'YOUR_TURN_USERNAME_HERE', 
-                credential: 'YOUR_TURN_PASSWORD_HERE' 
-            },
-            { 
-                urls: 'turn:a.relay.metered.ca:443?transport=tcp', 
-                username: 'YOUR_TURN_USERNAME_HERE', 
-                credential: 'YOUR_TURN_PASSWORD_HERE' 
-            }
+        iceServers: [// 1. STUN servers (Discovers public IP addresses)
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    { urls: 'stun:stun.l.google.com:19302' },
+
+    // 2. Your Active TURN servers (Relays video across strict firewalls & mobile networks)
+    {
+      urls: 'turn:a.relay.metered.ca:80',
+      username: '2f2a84ff07ed9b7fb5e9cc21',
+      credential: 'Uvfc7zqabCwxCkt4'
+    },
+    {
+      urls: 'turn:a.relay.metered.ca:443',
+      username: '2f2a84ff07ed9b7fb5e9cc21',
+      credential: 'Uvfc7zqabCwxCkt4'
+    },
+    {
+      urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+      username: '2f2a84ff07ed9b7fb5e9cc21',
+      credential: 'Uvfc7zqabCwxCkt4'
+    }
         ]
     }
 });
