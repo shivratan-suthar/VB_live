@@ -195,17 +195,40 @@ header {
 /* --- VIRTUAL TEACHER CURSOR OVERLAY --- */
 #playbackCursor {
     position: absolute; 
-    width: 10px; 
-    height: 10px; 
-    background: #ffffff; 
+    width: 16px; 
+    height: 16px; 
     border-radius: 50%;
     pointer-events: none; 
     display: none; 
-    z-index: 1000; 
+    z-index: 10000; 
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 5px rgba(0,0,0,0.5); 
-    border: 1px solid #000; 
-    transition: left 0.024s linear, top 0.024s linear, width 0.1s, height 0.1s, border-radius 0.1s, background-color 0.1s;
+    
+    /* High-contrast dual ring (White outer + Black inner) ensures visibility on ALL backgrounds */
+    background: var(--brand-accent, #f26d21);
+    border: 2px solid #ffffff;
+    outline: 1.5px solid #000000;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.8), 0 0 4px rgba(255, 255, 255, 0.9);
+    
+    /* Smooth 60fps hardware-accelerated tracking */
+    transition: left 0.03s linear, top 0.03s linear, width 0.15s, height 0.15s, background-color 0.15s;
+}
+#playbackCursor.tool-laser {
+    width: 20px;
+    height: 20px;
+    background: #ff0000 !important;
+    box-shadow: 0 0 14px #ff0000, 0 0 6px #ffffff;
+}
+#playbackCursor.tool-highlight {
+    width: 26px;
+    height: 26px;
+    opacity: 0.85;
+}
+
+#playbackCursor.tool-eraser {
+    width: 28px;
+    height: 28px;
+    background: #ffffff !important;
+    border: 2px dashed #ff4444;
 }
 
 /* --- DRAGGABLE WEBCAM PICTURE-IN-PICTURE BOX --- */
@@ -792,6 +815,7 @@ body.chat-collapsed .live-right-column {
 }
 
 /* DOCKED STATE (Chat is ON) - Drag Disabled */
+/* DOCKED STATE (Chat is ON) - Drag Disabled */
 .cam-box.docked {
     width: 100%;
     height: 100%;
@@ -801,8 +825,14 @@ body.chat-collapsed .live-right-column {
     display: flex;
     justify-content: center;
     align-items: center;
-    cursor: default !important; /* Removes the move cursor */
-    pointer-events: none; /* Blocks JavaScript mousedown/drag events */
+    cursor: default !important;
+    pointer-events: none;
+    
+    /* ADD THESE 4 LINES TO RESET THE OFFSETS */
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
 }
 
 .cam-box video {

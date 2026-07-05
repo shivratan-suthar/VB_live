@@ -1,5 +1,7 @@
 /**
- * RECORDER_CANVAS.JS — Live Broadcaster & Image Sync Fix
+ * RECORDER_CANVAS.JS — Educator Studio Whiteboard Engine
+ * Features: Fabric.js canvas management, custom SVG tool cursors, real-time stroke/cursor broadcasting,
+ * multi-slide PDF/image batch loading, undo/redo history stack, and clipboard cut/copy/paste engine.
  */
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
@@ -45,7 +47,7 @@ const syncWorkspaceBoardBoundsCalculations = () => {
     let newWidth = (containerRatio > targetRatio) ? parent.clientHeight * targetRatio : parent.clientWidth;
     let newHeight = (containerRatio > targetRatio) ? parent.clientHeight : parent.clientWidth / targetRatio;
     
-    // CHANGED: Increased from 0.96 to 0.99 to eliminate excess black margins around the board
+    // Increased to 0.99 to eliminate excess black margins around the board
     const renderW = newWidth * 0.99;
     const renderH = newHeight * 0.99;
     
@@ -58,14 +60,20 @@ const syncWorkspaceBoardBoundsCalculations = () => {
 window.addEventListener('resize', syncWorkspaceBoardBoundsCalculations);
 syncWorkspaceBoardBoundsCalculations();
 
+// =====================================================================
+// CUSTOM SVG CURSORS FOR EDUCATOR STUDIO
+// =====================================================================
 function updateCursor() {
     let cursorConfig = 'default';
+    const eraserSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="rgba(255,255,255,0.4)" stroke="%23ff4444" stroke-width="2" stroke-dasharray="3,3"/></svg>`;
+    const highlightSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4" fill="${encodeURIComponent(activeColor)}" fill-opacity="0.5" stroke="%23ffffff" stroke-width="2"/></svg>`;
+
     switch (activeTool) {
-        case 'pen': 
-        case 'shape': 
-        case 'highlight': 
-        case 'eraser': 
-        case 'pointer': cursorConfig = 'crosshair'; break;
+        case 'pen': cursorConfig = 'crosshair'; break;
+        case 'highlight': cursorConfig = `url('${highlightSvg}') 12 12, crosshair`; break;
+        case 'eraser': cursorConfig = `url('${eraserSvg}') 12 12, crosshair`; break;
+        case 'pointer': cursorConfig = 'cell'; break;
+        case 'shape': cursorConfig = 'crosshair'; break;
         case 'text': cursorConfig = 'text'; break;
         case 'select': cursorConfig = 'default'; break;
     }
@@ -290,9 +298,14 @@ canvas.on('mouse:down', (o) => {
     if (tempDrawingShape) canvas.add(tempDrawingShape);
 });
 
+// =====================================================================
+// REAL-TIME CURSOR BROADCAST (ALWAYS EMITS FIRST BEFORE ERASING GUARD)
+// =====================================================================
 canvas.on('mouse:move', (o) => {
-    if (isRightClickErasing || isLeftClickErasing) { swipeEraseTarget(o); return; }
-    const p = canvas.getPointer(o.e); const now = Date.now(); const rx = Math.round(p.x); const ry = Math.round(p.y);
+    const p = canvas.getPointer(o.e); 
+    const now = Date.now(); 
+    const rx = Math.round(p.x); 
+    const ry = Math.round(p.y);
     
     // Only emit drawing actions if the broadcast session is actively live
     if (window.isRecording && window.liveSocket && window.ROOM_ID) {
@@ -304,6 +317,12 @@ canvas.on('mouse:move', (o) => {
             window.liveSocket.emit('board-action', window.ROOM_ID, { type: 'draw-move', x: rx, y: ry, tool: activeTool, color: activeColor }); 
             window.lastLiveDrawEmit = now; 
         }
+    }
+
+    // Return early ONLY AFTER emitting cursor coordinates so erasing doesn't freeze the student's cursor!
+    if (isRightClickErasing || isLeftClickErasing) { 
+        swipeEraseTarget(o); 
+        return; 
     }
 
     if (window.isRecording && (now - (window.lastCursorLogTime || 0) > 25)) { if (window.jsonDrawingTimelineLog) window.jsonDrawingTimelineLog.push([now - (window.recordStartTime || 0), 'c', rx, ry]); window.lastCursorLogTime = now; }
@@ -320,11 +339,23 @@ canvas.on('mouse:move', (o) => {
 canvas.on('mouse:up', (o) => { 
     if (o.e.button === 2) { isRightClickErasing = false; canvas.renderAll(); saveHistoryState(); saveCurrentSlideState(); return; }
     if (activeTool === 'eraser') { isLeftClickErasing = false; canvas.renderAll(); saveHistoryState(); saveCurrentSlideState(); return; }
+    
     isUserDrawingCurrently = false; 
     if (typeof window.logActionDirectlyToTimeline === 'function') window.logActionDirectlyToTimeline('draw-end'); 
-    if (tempDrawingShape) { tempDrawingShape.setCoords(); canvas.renderAll(); saveHistoryState(); saveCurrentSlideState(); tempDrawingShape = null; } 
+    
+    if (tempDrawingShape) { 
+        tempDrawingShape.setCoords(); 
+        canvas.renderAll(); 
+        saveHistoryState(); 
+        saveCurrentSlideState(); 
+        tempDrawingShape = null; 
+    }
+    
+    // NEW: Push authoritative JSON snapshot to all students whenever a drawing action finishes!
+    if (window.isRecording && typeof window.broadcastDeckState === 'function') {
+        window.broadcastDeckState();
+    }
 });
-
 canvas.on('text:editing:exited', (o) => {
     if (!o.target.text || o.target.text.trim() === '') canvas.remove(o.target); 
     canvas.renderAll(); saveHistoryState(); saveCurrentSlideState();
@@ -348,7 +379,6 @@ document.getElementById('canvasImageInsertLoader')?.addEventListener('change', f
             activeTool = 'select'; activeShapeType = 'select'; updateCursor();
             canvas.add(img); canvas.setActiveObject(img); canvas.renderAll(); saveHistoryState(); saveCurrentSlideState();
             
-            // CRITICAL FIX: Send actual image data URL directly to student canvas
             if (typeof window.logActionDirectlyToTimeline === 'function') {
                 window.logActionDirectlyToTimeline('insert-image', { targetId: imgId, src: imgDataUrl });
             }

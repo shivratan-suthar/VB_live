@@ -1,11 +1,11 @@
 /**
  * RECORDER_MEDIA.JS — Educator Studio Live Stream & Media Controller
- * Manages dynamic room creation, WebRTC PeerJS audio/video streaming, Socket.IO live action broadcasting,
- * real-time student attendance tracking, hardware permissions, slide deck sync, and classroom hotkeys.
+ * Features: Dynamic room creation, WebRTC PeerJS audio/video streaming, Socket.IO live action broadcasting,
+ * automatic network reconnection recovery, intentional class shutdown handling, student attendance tracking, slide deck sync, and hotkeys.
  */
 
 // =====================================================================
-// 1. DYNAMIC ROOM & SOCKET INITIALIZATION
+// 1. DYNAMIC ROOM & SOCKET INITIALIZATION (WITH RECONNECTION RECOVERY)
 // =====================================================================
 // Generate a unique room ID for this educator session
 window.ROOM_ID = 'room-' + Math.random().toString(36).substring(2, 9);
@@ -41,6 +41,29 @@ const liveAttendanceCounter = document.getElementById('liveAttendanceCounter');
 // Initial UI State: Camera "Off" visual
 if (camVideoFeed) camVideoFeed.style.opacity = '0';
 if (btnMute) btnMute.classList.add('is-muted');
+
+// --- AUTOMATIC RECONNECTION RECOVERY ENGINE ---
+window.liveSocket.on('disconnect', (reason) => {
+    console.warn('[-] Educator Socket disconnected from server:', reason);
+});
+
+window.liveSocket.on('connect', () => {
+    console.log('[+] Educator Socket connected/reconnected. Checking broadcast state...');
+    // If the educator was actively broadcasting when the network blipped, restore the room instantly!
+    if (window.isRecording && window.ROOM_ID && window.educatorPeer) {
+        const headingTitle = document.getElementById('classroomStateHeadingTitle');
+        const title = headingTitle ? headingTitle.innerText.replace('LIVE: ', '') : 'Restored Class';
+        
+        console.log(`[*] Network recovered! Re-registering live room: ${window.ROOM_ID} (${title})...`);
+        window.liveSocket.emit('join-room', window.ROOM_ID, window.educatorPeer.id, true, title);
+        
+        // Push the latest whiteboard canvas and slide deck back to connected learners
+        if (typeof window.broadcastDeckState === 'function') {
+            window.broadcastDeckState();
+        }
+        window.liveSocket.emit('stream-ready', window.ROOM_ID, EDUCATOR_PEER_ID);
+    }
+});
 
 
 // =====================================================================
@@ -107,6 +130,33 @@ window.educatorPeer.on('call', (call) => {
 // =====================================================================
 // 4. SLIDE DECK SYNCHRONIZATION & ATTENDANCE TRACKING
 // =====================================================================
+// 1. Add this listener anywhere in Section 4 of recorder_media.js:
+window.liveSocket.on('request-canvas-resync', () => {
+    console.log('[*] Student requested canvas resync. Broadcasting fresh JSON snapshot...');
+    if (typeof window.broadcastDeckState === 'function') {
+        window.broadcastDeckState(); // Forces saveCurrentSlideState() and pushes authoritative JSON
+    }
+});
+
+// 2. Ensure your existing educator connect listener in Section 1 forces a save before pushing:
+window.liveSocket.on('connect', () => {
+    console.log('[+] Educator Socket reconnected.');
+    if (window.isRecording && window.ROOM_ID && window.educatorPeer) {
+        const headingTitle = document.getElementById('classroomStateHeadingTitle');
+        const title = headingTitle ? headingTitle.innerText.replace('LIVE: ', '') : 'Restored Class';
+        
+        window.liveSocket.emit('join-room', window.ROOM_ID, window.educatorPeer.id, true, title);
+        
+        // Force capture of anything drawn while offline before syncing to students!
+        if (typeof window.saveCurrentSlideState === 'function') {
+            window.saveCurrentSlideState();
+        }
+        if (typeof window.broadcastDeckState === 'function') {
+            window.broadcastDeckState();
+        }
+        window.liveSocket.emit('stream-ready', window.ROOM_ID, EDUCATOR_PEER_ID);
+    }
+});
 window.broadcastDeckState = function() {
     if (window.liveSocket && window.isRecording && typeof window.saveCurrentSlideState === 'function') {
         window.saveCurrentSlideState();
@@ -134,7 +184,7 @@ window.liveSocket.on('user-connected', (data) => {
     }
 });
 
-// Listen for explicit stream requests from late-joining students
+// Listen for explicit stream requests from late-joining students or students recovering from a network drop
 window.liveSocket.on('request-webrtc-stream', (data) => {
     if (localHardwareAVStream && window.educatorPeer && data.peerId) {
         console.log('[+] Learner requested WebRTC stream explicitly. Calling:', data.peerId);
@@ -148,7 +198,6 @@ window.liveSocket.on('attendance-update', (count) => {
     if (liveAttendanceCounter) {
         liveAttendanceCounter.innerText = `👥 ${count} Watching`;
         
-        // Highlight in green if 1 or more students are actively watching
         if (count > 0) {
             liveAttendanceCounter.classList.add('has-viewers');
         } else {
@@ -288,6 +337,12 @@ liveBadge?.addEventListener('click', async () => {
     if (window.isRecording) {
         if (typeof window.saveCurrentSlideState === 'function') window.saveCurrentSlideState();
         window.isRecording = false; 
+        
+        // Explicitly notify server that the host intentionally closed the room
+        if (window.liveSocket && window.ROOM_ID) {
+            window.liveSocket.emit('end-class', window.ROOM_ID);
+        }
+
         liveBadge.textContent = "🔴 Start Live Room";
         liveBadge.classList.remove('recording');
         
@@ -296,12 +351,13 @@ liveBadge?.addEventListener('click', async () => {
             liveAttendanceCounter.classList.add('hidden');
         }
         
-        // Reload page to generate a fresh room ID for next session
-        window.location.reload();
+        // Give socket 150ms to dispatch end-class event before reloading
+        setTimeout(() => {
+            window.location.reload();
+        }, 150);
         return;
     }
     
-    // Show setup modal to capture class topic before emitting to server
     if (liveSetupModal) {
         liveSetupModal.style.display = 'flex';
         if (liveClassTitleInput) liveClassTitleInput.focus();
@@ -316,30 +372,24 @@ document.getElementById('btnConfirmLiveStart')?.addEventListener('click', () => 
     const enteredTitle = liveClassTitleInput?.value.trim() || "Untitled Live Class";
     if (liveSetupModal) liveSetupModal.style.display = 'none';
 
-    // Update UI title header
     const headingTitle = document.getElementById('classroomStateHeadingTitle');
     if (headingTitle) headingTitle.innerText = `LIVE: ${enteredTitle}`;
 
-    // Emit join-room to backend with class title (registers stream in lobby)
     console.log(`[*] Registering room ${window.ROOM_ID} as "${enteredTitle}"...`);
     window.liveSocket.emit('join-room', window.ROOM_ID, window.educatorPeer.id, true, enteredTitle);
 
-    // Set active state
     window.isRecording = true; 
     window.recordStartTime = Date.now(); 
     liveBadge.textContent = "📡 LIVE BROADCASTING";
     liveBadge.classList.add('recording');
     
-    // Start visual UI timer
     startLiveTimer();
     
-    // Show the attendance counter starting at 0
     if (liveAttendanceCounter) {
         liveAttendanceCounter.innerText = "👥 0 Watching";
         liveAttendanceCounter.classList.remove('hidden', 'has-viewers');
     }
     
-    // Broadcast initial state & stream readiness
     window.broadcastDeckState();
     window.liveSocket.emit('stream-ready', window.ROOM_ID, EDUCATOR_PEER_ID);
 });
@@ -347,6 +397,8 @@ document.getElementById('btnConfirmLiveStart')?.addEventListener('click', () => 
 document.getElementById('btnEndClass')?.addEventListener('click', () => { 
     if (window.isRecording && liveBadge) liveBadge.click(); 
 });
+
+
 // =====================================================================
 // 8. REAL-TIME CLASSROOM CHAT ENGINE
 // =====================================================================
@@ -357,7 +409,6 @@ const chatMessagesBox = document.getElementById('liveChatMessages');
 function appendChatMessage(sender, text, isEducator = false) {
     if (!chatMessagesBox) return;
     
-    // Remove initial system prompt if present
     const sysMsg = chatMessagesBox.querySelector('.sys-msg');
     if (sysMsg && chatMessagesBox.children.length === 1) {
         sysMsg.remove();
@@ -382,11 +433,9 @@ function sendEducatorMessage() {
         return;
     }
 
-    // 1. Render instantly on the educator's screen
     appendChatMessage('You', text, true);
     if (chatInput) chatInput.value = '';
 
-    // 2. Emit over Socket.IO using your new dedicated 'chat-message' route
     if (window.liveSocket) {
         window.liveSocket.emit('chat-message', window.ROOM_ID, {
             sender: 'Educator',
@@ -404,16 +453,14 @@ chatInput?.addEventListener('keydown', (e) => {
     }
 });
 
-// 3. Listen for incoming student messages from your new backend route
 window.liveSocket.on('chat-message', (payload) => {
-    // Ignore if it's an echo of our own message
     if (payload.isEducator) return;
-    
     appendChatMessage(payload.sender || 'Learner', payload.text, false);
 });
 
+
 // =====================================================================
-// 8. UI ORIENTATION & KEYBOARD SHORTCUTS
+// 9. UI ORIENTATION & KEYBOARD SHORTCUTS
 // =====================================================================
 document.getElementById('btnDismissOrientation')?.addEventListener('click', () => {
     if (orientOverlay) orientOverlay.classList.add('hidden');

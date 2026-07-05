@@ -1,5 +1,7 @@
 /**
  * PLAYER2.JS — Real-Time Live Receiver & Lobby Discovery Engine
+ * Features: Socket.IO & PeerJS WebRTC receiver, dynamic whiteboard sync, 
+ * strict lobby room guards, network reconnection resilience, host grace buffer, canvas resync, and live chat.
  */
 
 // --- 1. CONFIGURATION & NETWORK SETUP ---
@@ -7,9 +9,15 @@ window.ROOM_ID = null; // Dynamically set when choosing a stream card
 const LEARNER_PEER_ID = 'learner-' + Math.floor(Math.random() * 100000);
 const SERVER_URL = 'https://api.sutharx.in';
 
-const liveSocket = io(SERVER_URL, {
+// FIX: Declare the pending stream variable to prevent the PeerJS race condition
+let pendingStreamRequestRoomId = null;
+
+// Attach directly to window.liveSocket first
+window.liveSocket = io(SERVER_URL, {
     extraHeaders: { "ngrok-skip-browser-warning": "true" }
 });
+// Create a local reference alias safely
+const liveSocket = window.liveSocket;
 
 const peer = new Peer(LEARNER_PEER_ID, {
     config: {
@@ -24,9 +32,17 @@ const peer = new Peer(LEARNER_PEER_ID, {
 });
 
 let isPeerReady = false;
+let hostEvictionTimeout = null;
+
 peer.on('open', (id) => {
     console.log('[+] Learner PeerJS ready with ID:', id);
     isPeerReady = true;
+    
+    // FIX: Fire the delayed stream request if the user joined the lobby before PeerJS finished connecting
+    if (pendingStreamRequestRoomId) {
+        liveSocket.emit('request-webrtc-stream', pendingStreamRequestRoomId, { peerId: id });
+        pendingStreamRequestRoomId = null;
+    }
 });
 
 peer.on('error', (err) => console.error('[-] Learner PeerJS Error:', err));
@@ -52,12 +68,13 @@ function attachRemoteStream(remoteStream) {
     }
     const videoTracks = remoteStream.getVideoTracks();
     if (videoTracks.length > 0) {
+        // Reverted the muted check to properly detect when the educator's camera is actually off or buffering
         setStudentCamPlaceholder(videoTracks[0].enabled && !videoTracks[0].muted);
+        
         videoTracks[0].onmute = () => setStudentCamPlaceholder(false);
         videoTracks[0].onunmute = () => setStudentCamPlaceholder(true);
     }
 }
-
 // Answer incoming WebRTC call from educator
 peer.on('call', (call) => {
     console.log('[+] Educator is calling learner. Answering...');
@@ -66,7 +83,46 @@ peer.on('call', (call) => {
     call.on('stream', attachRemoteStream);
 });
 
-// --- 2. LOBBY DISCOVERY & STREAM SELECTION ENGINE ---
+
+// --- 2. NETWORK LIFECYCLE & RECONNECTION MANAGEMENT ---
+liveSocket.on('disconnect', (reason) => {
+    console.warn('[-] Socket disconnected from server:', reason);
+    const overlay = document.getElementById('reconnectingOverlay');
+    if (overlay && window.ROOM_ID) {
+        overlay.innerText = "⚠️ Network connection lost. Reconnecting to live class...";
+        overlay.style.background = "#e02020";
+        overlay.classList.remove('hidden');
+    }
+});
+
+liveSocket.on('connect', () => {
+    console.log('[+] Socket connected/reconnected. Verifying room state...');
+    const overlay = document.getElementById('reconnectingOverlay');
+    if (overlay) overlay.classList.add('hidden');
+    
+    // Clear any pending eviction timeouts if we re-established connection
+    if (hostEvictionTimeout) {
+        clearTimeout(hostEvictionTimeout);
+        hostEvictionTimeout = null;
+    }
+
+    if (window.ROOM_ID) {
+        console.log(`[*] Automatically rejoining room: ${window.ROOM_ID}...`);
+        liveSocket.emit('join-room', window.ROOM_ID, LEARNER_PEER_ID, false);
+        liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
+        
+        // Explicitly ask the educator to send us the latest canvas state to fix offline gaps
+        console.log('[*] Requesting authoritative canvas snapshot...');
+        liveSocket.emit('request-canvas-resync', window.ROOM_ID);
+    } else {
+        if (typeof window.fetchActiveClasses === 'function') {
+            window.fetchActiveClasses();
+        }
+    }
+});
+
+
+// --- 3. LOBBY DISCOVERY & STREAM SELECTION ENGINE ---
 window.fetchActiveClasses = async function() {
     const grid = document.getElementById('liveClassesGrid');
     if (!grid) return;
@@ -91,7 +147,6 @@ function renderLobbyGrid(classesList) {
     const grid = document.getElementById('liveClassesGrid');
     if (!grid) return;
 
-    // Only render lobby cards if user is sitting on the home view screen
     const homeView = document.getElementById('homeViewContainer');
     if (homeView && homeView.classList.contains('hidden')) return;
 
@@ -123,12 +178,10 @@ function renderLobbyGrid(classesList) {
     });
 }
 
-// Listen for global lobby updates when classes open/close
 liveSocket.on('live-classes-updated', (updatedList) => {
     renderLobbyGrid(updatedList);
 });
 
-// Join a dynamically selected room
 window.joinSelectedLiveClass = function(roomId, classTitle) {
     window.ROOM_ID = roomId;
     const homeView = document.getElementById('homeViewContainer');
@@ -138,6 +191,13 @@ window.joinSelectedLiveClass = function(roomId, classTitle) {
     if (headerTitle) headerTitle.innerText = `🔴 WATCHING: ${classTitle || roomId}`;
     if (homeView) homeView.classList.add('hidden');
     if (webcamBox) webcamBox.style.display = 'flex';
+    
+    // Wipe old chat history clean when entering a new classroom
+    const chatBox = document.getElementById('playerChatMessages');
+    if (chatBox) {
+        chatBox.innerHTML = '<div class="sys-msg">Welcome to live chat! Be respectful.</div>';
+    }
+
     if (typeof window.syncCanvasDimensionsToWrapper === 'function') {
         window.syncCanvasDimensionsToWrapper();
     }
@@ -145,38 +205,91 @@ window.joinSelectedLiveClass = function(roomId, classTitle) {
     console.log(`[*] Connecting to live stream room: ${roomId}...`);
     liveSocket.emit('join-room', roomId, LEARNER_PEER_ID, false);
 
-    // Request WebRTC feed from educator
-    const requestStream = () => liveSocket.emit('request-webrtc-stream', roomId, { peerId: LEARNER_PEER_ID });
-    if (isPeerReady) requestStream();
-    else setTimeout(requestStream, 1000);
+    // If PeerJS isn't ready yet, queue the request cleanly.
+    if (isPeerReady) {
+        liveSocket.emit('request-webrtc-stream', roomId, { peerId: LEARNER_PEER_ID });
+    } else {
+        console.log('[*] Waiting for PeerJS connection before requesting video stream...');
+        pendingStreamRequestRoomId = roomId;
+    }
 };
 
-// If educator ends the class while watching
+// Handle class ending (with grace buffer for accidental drops vs intentional ends)
 liveSocket.on('class-ended', (data) => {
-    // Check if the class that ended is the one the student is currently watching
     if (data.roomId === window.ROOM_ID) {
-       
-        if (typeof exitPlayerToHomeHub === 'function') {
-            exitPlayerToHomeHub();
+        const overlay = document.getElementById('reconnectingOverlay');
+
+        // CASE 1: Educator intentionally clicked "End Class"
+        if (data.intentional) {
+            console.log('[*] Live class was intentionally ended by the educator.');
+            if (hostEvictionTimeout) clearTimeout(hostEvictionTimeout);
+            
+            if (overlay) {
+                overlay.innerText = "🛑 The educator has ended the live session.";
+                overlay.style.background = "#333333";
+                overlay.classList.remove('hidden');
+            }
+
+            setTimeout(() => {
+                if (overlay) {
+                    overlay.classList.add('hidden');
+                    overlay.style.background = "#e02020";
+                }
+                if (typeof exitPlayerToHomeHub === 'function') {
+                    exitPlayerToHomeHub();
+                }
+            }, 2500);
+            return;
         }
+
+        // CASE 2: Accidental network drop (Initiate 8-second recovery buffer)
+        console.warn('[-] Received class-ended signal. Initiating 8-second recovery buffer...');
+        if (overlay) {
+            overlay.innerText = "⚠️ Host connection interrupted. Waiting for educator to resume...";
+            overlay.style.background = "#e02020";
+            overlay.classList.remove('hidden');
+        }
+
+        if (hostEvictionTimeout) clearTimeout(hostEvictionTimeout);
+        hostEvictionTimeout = setTimeout(() => {
+            if (window.ROOM_ID === data.roomId) {
+                if (overlay) overlay.classList.add('hidden');
+                if (typeof exitPlayerToHomeHub === 'function') {
+                    exitPlayerToHomeHub();
+                }
+            }
+        }, 8000);
     }
-    // Optionally: You could also trigger a re-fetch of the lobby list here
-    // window.fetchActiveClasses();
 });
 
 liveSocket.on('stream-ready', () => {
+    if (hostEvictionTimeout) {
+        clearTimeout(hostEvictionTimeout);
+        hostEvictionTimeout = null;
+        const overlay = document.getElementById('reconnectingOverlay');
+        if (overlay) overlay.classList.add('hidden');
+    }
     if (window.ROOM_ID) liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
 });
 
 liveSocket.on('camera-status', (data) => setStudentCamPlaceholder(data.enabled));
 
-// Auto-fetch list on initial page load
 window.addEventListener('DOMContentLoaded', () => {
     window.fetchActiveClasses();
 });
 
-// --- 3. SLIDE DECK SYNCHRONIZATION ---
+
+// --- 4. SLIDE DECK SYNCHRONIZATION ---
 liveSocket.on('deck-state-init', (deckPayload) => {
+    if (!window.ROOM_ID) return; // STRICT GUARD: Ignore if sitting in lobby!
+
+    if (hostEvictionTimeout) {
+        clearTimeout(hostEvictionTimeout);
+        hostEvictionTimeout = null;
+        const overlay = document.getElementById('reconnectingOverlay');
+        if (overlay) overlay.classList.add('hidden');
+    }
+
     window.globalSlidesDeck = deckPayload.slides || [];
     window.activeSlideIndex = deckPayload.activeSlideIndex || 0;
     if (deckPayload.isCameraOn !== undefined) setStudentCamPlaceholder(deckPayload.isCameraOn);
@@ -184,7 +297,8 @@ liveSocket.on('deck-state-init', (deckPayload) => {
     window.jumpToSlideIndex(window.activeSlideIndex);
 });
 
-// --- 4. SLIDE NAVIGATION ENGINE ---
+
+// --- 5. SLIDE NAVIGATION ENGINE ---
 window.jumpToSlideIndex = function(index) {
     window.activeSlideIndex = index;
     if (typeof window.renderFlatSlideSorterUI === 'function') window.renderFlatSlideSorterUI();
@@ -207,9 +321,10 @@ window.jumpToSlideIndex = function(index) {
     }
 };
 
-// --- 5. LIVE WHITEBOARD ACTION RECEIVER ---
+
+// --- 6. LIVE WHITEBOARD ACTION RECEIVER ---
 liveSocket.on('board-action', (ev) => {
-    if (!window.canvas) return;
+    if (!window.ROOM_ID || !window.canvas) return; // STRICT GUARD: Ignore if sitting in lobby!
 
     if (ev.type === 'slide-switch') window.jumpToSlideIndex(ev.index);
     else if (ev.type === 'tool-switch') {
@@ -238,6 +353,7 @@ liveSocket.on('board-action', (ev) => {
         else if (ev.tool === 'text') {
             playbackActiveObject = new fabric.Textbox('', { left: ev.x, top: ev.y, width: 400, fill: ev.color, fontFamily: 'Segoe UI', id: ev.objectId, fontSize: ev.fontSize || 42, selectable: false, slideIndex: ev.slideIndex !== undefined ? ev.slideIndex : window.activeSlideIndex, visible: window.areAnnotationsVisible });
             window.canvas.add(playbackActiveObject);
+            window.canvas.renderAll();
         }
         else if (ev.tool === 'shape') {
             shapeStartX = ev.x; shapeStartY = ev.y;
@@ -249,7 +365,11 @@ liveSocket.on('board-action', (ev) => {
             if (ev.shapeType === 'triangle') playbackActiveObject = new fabric.Triangle({ ...props, width: 1, height: 1 });
             if (ev.shapeType === 'line') playbackActiveObject = new fabric.Line([ev.x, ev.y, ev.x + 1, ev.y + 1], props);
             if (ev.shapeType === 'cube') playbackActiveObject = new fabric.Path("M 50 0 L 100 25 L 100 75 L 50 100 L 0 75 L 0 25 Z M 50 0 L 50 50 L 100 25 M 0 25 L 50 50 L 50 100", { ...props, scaleX: 0, scaleY: 0, originX: 'left', originY: 'top' });
-            if (playbackActiveObject) window.canvas.add(playbackActiveObject);
+            
+            if (playbackActiveObject) {
+                window.canvas.add(playbackActiveObject);
+                window.canvas.renderAll(); // Ensure shape renders immediately when placed
+            }
         }
     } 
     else if (ev.type === 'draw-move') {
@@ -275,6 +395,9 @@ liveSocket.on('board-action', (ev) => {
         if (playbackActiveObject && playbackDrawTool === 'pointer') {
             const ptrLine = playbackActiveObject;
             ptrLine.animate('opacity', 0, { duration: 1000, onChange: window.canvas.renderAll.bind(window.canvas), onComplete: () => { window.canvas.remove(ptrLine); } });
+        } else if (playbackActiveObject) {
+            playbackActiveObject.setCoords();
+            window.canvas.renderAll();
         }
         playbackActivePoints = []; playbackActiveObject = null;
     }
@@ -326,9 +449,8 @@ liveSocket.on('board-action', (ev) => {
     }
 });
 
-// =====================================================================
-// 7. COLLAPSIBLE RIGHT RAIL & REAL-TIME CHAT CONTROLLER
-// =====================================================================
+
+// --- 7. COLLAPSIBLE RIGHT RAIL & REAL-TIME CHAT CONTROLLER ---
 const btnToggleRightSidebar = document.getElementById('btnToggleRightSidebar');
 const btnRailChatToggle = document.getElementById('btnRailChatToggle');
 const camBox = document.getElementById('webcamContainerWrapperBox');
@@ -342,31 +464,26 @@ function toggleRightSidebarState() {
     document.body.classList.toggle('chat-collapsed', isSidebarCollapsed);
 
     if (isSidebarCollapsed) {
-        // 1. Change bottom button arrow direction pointing left (🡰)
         if (btnToggleRightSidebar) btnToggleRightSidebar.innerText = '🡰';
         if (btnRailChatToggle) btnRailChatToggle.classList.remove('active');
 
-        // 2. Move webcam out of docked slot into floating PIP over canvas
         if (camBox && canvasContainer) {
             camBox.classList.remove('docked');
             camBox.classList.add('floating-pip');
             canvasContainer.appendChild(camBox);
         }
     } else {
-        // 1. Change bottom button arrow pointing right (➔)
         if (btnToggleRightSidebar) btnToggleRightSidebar.innerText = '➔';
         if (btnRailChatToggle) btnRailChatToggle.classList.add('active');
 
-        // 2. Return webcam into the docked right column slot
         if (camBox && camDockSlot) {
             camBox.classList.remove('floating-pip');
             camBox.classList.add('docked');
             camDockSlot.appendChild(camBox);
-            camBox.style.left = ''; camBox.style.top = ''; // Reset drag offsets
+            camBox.style.left = ''; camBox.style.top = ''; 
         }
     }
 
-    // 3. Auto-expand canvas dimensions smoothly after CSS transition completes
     setTimeout(() => {
         if (typeof window.syncCanvasDimensionsToWrapper === 'function') {
             window.syncCanvasDimensionsToWrapper();
@@ -374,7 +491,6 @@ function toggleRightSidebarState() {
     }, 260);
 }
 
-// Attach listeners to both the bottom arrow button and top chat bubble icon
 btnToggleRightSidebar?.addEventListener('click', toggleRightSidebarState);
 btnRailChatToggle?.addEventListener('click', toggleRightSidebarState);
 
@@ -425,10 +541,13 @@ playerChatInput?.addEventListener('keydown', (e) => {
 });
 
 liveSocket.on('chat-message', (payload) => {
+    if (!window.ROOM_ID) return; // STRICT GUARD: Ignore if sitting in lobby!
     if (payload.sender === studentDisplayName) return;
     appendPlayerChatMessage(payload.sender || 'Learner', payload.text, payload.isEducator || false);
 });
-// --- 6. PATH & CURVE SMOOTHING UTILITY ---
+
+
+// --- 8. PATH & CURVE SMOOTHING UTILITY ---
 window.getSmoothPathFromPoints = function(points) {
     if (!points || points.length === 0) return 'M 0 0';
     if (points.length === 1) return `M ${points[0].x} ${points[0].y} L ${points[0].x} ${points[0].y}`;
@@ -441,21 +560,3 @@ window.getSmoothPathFromPoints = function(points) {
     pathStr += ` L ${points[points.length - 1].x} ${points[points.length - 1].y}`;
     return pathStr;
 };
-
-// Add this to your Socket.IO setup in player2.js
-liveSocket.on('connect', () => {
-    console.log('[+] Socket reconnected. Checking room status...');
-    if (window.ROOM_ID) {
-        // Re-join the room to ensure we are listening to the right broadcast
-        liveSocket.emit('join-room', window.ROOM_ID, LEARNER_PEER_ID, false);
-    }
-});
-
-// Add this to your Socket.IO setup in player2.js
-liveSocket.on('connect', () => {
-    console.log('[+] Socket reconnected. Checking room status...');
-    if (window.ROOM_ID) {
-        // Re-join the room to ensure we are listening to the right broadcast
-        liveSocket.emit('join-room', window.ROOM_ID, LEARNER_PEER_ID, false);
-    }
-});

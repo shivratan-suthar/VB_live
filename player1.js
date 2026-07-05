@@ -1,6 +1,6 @@
 /**
  * PLAYER1.JS - Canvas & UI Layout Engine (Live Classroom Edition)
- * Handles scaling, slide background loading, UI toggles, PIP dragging, and PDF export.
+ * Handles scaling, slide background loading, UI toggles, PIP dragging, precision cursor tracking, and PDF export.
  */
 
 window.globalSlidesDeck = [];
@@ -18,7 +18,6 @@ window.settingsCard = document.getElementById('modernSettingsCardPopup');
 const dragBox = document.getElementById('webcamContainerWrapperBox');
 
 // --- 16:9 CANVAS RESPONSIVE LOCK ---
-// Update this specific function inside player1.js
 window.syncCanvasDimensionsToWrapper = () => {
     if (!window.parentContainer) return;
     
@@ -44,6 +43,67 @@ window.syncCanvasDimensionsToWrapper = () => {
     window.canvas.renderAll(); 
 };
 window.addEventListener('resize', window.syncCanvasDimensionsToWrapper);
+
+
+// =====================================================================
+// PRECISION EDUCATOR CURSOR TRACKING & VISUAL CONTROLLER
+// =====================================================================
+let cursorAutoHideTimeout = null;
+let lastKnownCursorX = 960;
+let lastKnownCursorY = 540;
+
+window.updateCursorVisualState = function(virtualX, virtualY, tool = 'pen', color = '#ffffff') {
+    const cursorEl = document.getElementById('playbackCursor');
+    const parentContainer = document.getElementById('canvasContainer');
+    
+    if (!cursorEl || !window.canvas || !parentContainer) return;
+
+    // Prevent top-left snapping when tool-switch events pass (0,0)
+    if (virtualX === 0 && virtualY === 0 && lastKnownCursorX) {
+        virtualX = lastKnownCursorX;
+        virtualY = lastKnownCursorY;
+    } else {
+        lastKnownCursorX = virtualX;
+        lastKnownCursorY = virtualY;
+    }
+
+    // 1. Get exact zoom scale of the 1920x1080 virtual canvas
+    const zoom = window.canvas.getZoom();
+    
+    // 2. Get DOM bounding boxes to account for flexbox centering margins
+    const canvasDOMRect = window.canvas.lowerCanvasEl.getBoundingClientRect();
+    const containerDOMRect = parentContainer.getBoundingClientRect();
+
+    // 3. Map virtual coordinates to exact DOM screen pixels relative to #canvasContainer
+    const exactScreenX = (canvasDOMRect.left - containerDOMRect.left) + (virtualX * zoom);
+    const exactScreenY = (canvasDOMRect.top - containerDOMRect.top) + (virtualY * zoom);
+
+    // 4. Apply precise position
+    cursorEl.style.display = 'block';
+    cursorEl.style.left = `${exactScreenX}px`;
+    cursorEl.style.top = `${exactScreenY}px`;
+
+    // 5. Morph cursor appearance based on active educator tool
+    cursorEl.className = ''; // Reset tool classes
+    if (tool === 'pointer' || tool === 'laser') {
+        cursorEl.classList.add('tool-laser');
+    } else if (tool === 'highlight') {
+        cursorEl.classList.add('tool-highlight');
+        cursorEl.style.backgroundColor = color;
+    } else if (tool === 'eraser') {
+        cursorEl.classList.add('tool-eraser');
+    } else {
+        // Standard pen or text tool matches the educator's selected color
+        cursorEl.style.backgroundColor = color;
+    }
+
+    // 6. Auto-hide cursor after 4 seconds of educator inactivity
+    if (cursorAutoHideTimeout) clearTimeout(cursorAutoHideTimeout);
+    cursorAutoHideTimeout = setTimeout(() => {
+        cursorEl.style.display = 'none';
+    }, 4000);
+};
+
 
 // --- DRAGGABLE WEBCAM PIP BOX (WITH TOUCH SUPPORT) ---
 let isDragging = false; let startX, startY, initialLeft, initialTop;
@@ -87,6 +147,7 @@ window.addEventListener('touchmove', moveDragHandler, { passive: false });
 window.addEventListener('mouseup', stopDragHandler);
 window.addEventListener('touchend', stopDragHandler);
 
+
 // --- SLIDE DECK SORTER UI ---
 window.renderFlatSlideSorterUI = function() {
     const container = document.getElementById('fileRegistryContainer'); 
@@ -127,6 +188,7 @@ window.applySlideBackground = function(slide, customCanvas = window.canvas) {
     }
 };
 
+
 // --- SETTINGS POPUP CONTROLLERS ---
 if (document.getElementById('btnModernSettingsTrigger')) {
     document.getElementById('btnModernSettingsTrigger').addEventListener('click', e => { 
@@ -148,6 +210,7 @@ if (document.getElementById('btnBackToMainSettingsMenu')) {
         document.getElementById('settingsPopupSpeedLayer').classList.add('hidden');
     });
 }
+
 
 // --- SLIDE MODE TOGGLE ---
 window.toggleSlideMode = function(forceState) {
@@ -198,6 +261,7 @@ window.toggleSlideMode = function(forceState) {
 document.getElementById('rowToggleSlideMode')?.addEventListener('click', () => window.toggleSlideMode());
 document.getElementById('btnExitSlideModeArrow')?.addEventListener('click', (e) => { e.stopPropagation(); window.toggleSlideMode(false); });
 
+
 // --- ANNOTATION VISIBILITY TOGGLE ---
 document.getElementById('btnToggleAnnotationsVectorVisibility')?.addEventListener('click', () => {
     window.areAnnotationsVisible = !window.areAnnotationsVisible;
@@ -210,7 +274,6 @@ document.getElementById('btnToggleAnnotationsVectorVisibility')?.addEventListene
     }
     
     window.canvas.forEachObject(obj => { 
-        // FIX 4: Support safety fallback if an element lacks an explicit slideIndex assignment
         const isCurrentSlide = obj.slideIndex === undefined || obj.slideIndex === window.activeSlideIndex;
         obj.visible = (isCurrentSlide && window.areAnnotationsVisible); 
     }); 
@@ -218,9 +281,9 @@ document.getElementById('btnToggleAnnotationsVectorVisibility')?.addEventListene
     window.renderFlatSlideSorterUI(); 
 });
 
+
 // --- FULLSCREEN TOGGLE ---
 document.getElementById('btnModernFullscreenToggle')?.addEventListener('click', () => {
-    // Change selector target from '.central-workspace' to '.app-body'
     const workspace = document.querySelector('.app-body');
     if (!document.fullscreenElement && workspace) { 
         workspace.requestFullscreen().then(() => { setTimeout(window.syncCanvasDimensionsToWrapper, 100); }); 
@@ -236,6 +299,7 @@ document.getElementById('btnStepperPrevPage')?.addEventListener('click', () => {
 document.getElementById('btnStepperNextPage')?.addEventListener('click', () => { 
     if (window.activeSlideIndex < window.globalSlidesDeck.length - 1 && typeof window.jumpToSlideIndex === 'function') window.jumpToSlideIndex(window.activeSlideIndex + 1); 
 });
+
 
 // --- VOLUME & MUTE CONTROLS ---
 const muteBtn = document.getElementById('btnModernMuteToggle');
@@ -263,6 +327,7 @@ if (volSlider && window.camVideoFeed) {
     });
 }
 
+
 // --- PDF EXPORT ENGINE ---
 document.getElementById('btnDownloadPdf')?.addEventListener('click', async function() {
     if (!window.globalSlidesDeck || window.globalSlidesDeck.length === 0) return;
@@ -285,7 +350,6 @@ document.getElementById('btnDownloadPdf')?.addEventListener('click', async funct
             const slide = window.globalSlidesDeck[i];
             exportCanvas.clear();
 
-            // FIX 1: Load annotations JSON layer FIRST before backgrounds to stop data erasure
             if (window.areAnnotationsVisible && slide.annotation) {
                 await new Promise((resolve) => {
                     exportCanvas.loadFromJSON(slide.annotation, () => {
@@ -295,7 +359,6 @@ document.getElementById('btnDownloadPdf')?.addEventListener('click', async funct
                 });
             }
 
-            // Load background layer second, confirming it sits underneath perfectly
             if (slide.sourceUrl) {
                 await new Promise((resolve) => {
                     fabric.Image.fromURL(slide.sourceUrl, (img) => {
@@ -327,13 +390,27 @@ document.getElementById('btnDownloadPdf')?.addEventListener('click', async funct
     }
 });
 
+
 // --- RETURN TO HOME HUB & CLEAN UP LIVE STREAMS ---
 function exitPlayerToHomeHub() {
+    // 1. Hide virtual cursor immediately
+    const cursorEl = document.getElementById('playbackCursor');
+    if (cursorEl) cursorEl.style.display = 'none';
+
+    // 2. Wipe old chat history clean so it won't bleed into the next class
+    const chatBox = document.getElementById('playerChatMessages');
+    if (chatBox) {
+        chatBox.innerHTML = '<div class="sys-msg">Welcome to live chat! Be respectful.</div>';
+    }
+
+    // 3. EMIT LEAVE-ROOM TO SERVER (Now works because window.liveSocket is defined!)
     if (window.liveSocket && window.ROOM_ID) {
+        console.log(`[*] Emitting leave-room signal for: ${window.ROOM_ID}`);
         window.liveSocket.emit('leave-room', window.ROOM_ID);
     }
     window.ROOM_ID = null;
 
+    // 4. Close WebRTC audio/video peer connection
     if (window.peerCall) {
         window.peerCall.close();
     }
@@ -354,11 +431,8 @@ function exitPlayerToHomeHub() {
     }
     
     if (window.playPauseBtn) window.playPauseBtn.textContent = "▶";
-    const cursorEl = document.getElementById('playbackCursor');
-    if (cursorEl) cursorEl.style.display = 'none';
     if (dragBox) dragBox.style.display = 'none';
 
-    // FIX 2: Clear workspace layout side-effects out of DOM to reset subsequent class instances
     document.body.classList.remove('chat-collapsed', 'sidebar-open');
     if (dragBox) {
         dragBox.classList.remove('floating-pip');
@@ -371,6 +445,7 @@ function exitPlayerToHomeHub() {
     const homeView = document.getElementById('homeViewContainer');
     if (homeView) homeView.classList.remove('hidden');
 
+    // 5. Fetch updated lobby cards immediately
     if (typeof window.fetchActiveClasses === 'function') {
         window.fetchActiveClasses();
     }
@@ -380,7 +455,7 @@ const exitHeaderBtn = document.getElementById('btnBackToHomeMenu');
 
 if (exitToolbarBtn) exitToolbarBtn.addEventListener('click', exitPlayerToHomeHub);
 if (exitHeaderBtn) exitHeaderBtn.addEventListener('click', exitPlayerToHomeHub);
-// Add this block near the bottom of player1.js (e.g., above the volume controls)
+
 if (window.playPauseBtn && window.camVideoFeed) {
     window.playPauseBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -394,5 +469,12 @@ if (window.playPauseBtn && window.camVideoFeed) {
             window.camVideoFeed.pause();
             window.playPauseBtn.textContent = "▶";
         }
+    });
+window.camVideoFeed.addEventListener('play', () => {
+        window.playPauseBtn.textContent = "⏸";
+    });
+
+    window.camVideoFeed.addEventListener('pause', () => {
+        window.playPauseBtn.textContent = "▶";
     });
 }

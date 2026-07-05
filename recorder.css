@@ -1,7 +1,7 @@
 /**
  * RECORDER.CSS — Educator Studio & Real-Time Live Classroom Styles
  * Features CSS Grid workspace layout, floating palettes, responsive mobile adjustments,
- * WebRTC webcam container styling, and live status badges.
+ * WebRTC webcam container styling, live status badges, and 16:9 responsive canvas.
  */
 
 :root {
@@ -152,9 +152,7 @@ header {
 .central-workspace {
     flex: 1;
     display: grid;
-    /* Reduced palette column from 58px -> 40px */
     grid-template-columns: 40px 1fr;
-    /* Reduced bottom toolbar row from 68px -> 50px */
     grid-template-rows: 1fr 50px;
     grid-template-areas:
         "palette canvas"
@@ -163,7 +161,7 @@ header {
     background: var(--bg-workspace);
     overflow: hidden;
     box-sizing: border-box;
-    padding: 4px; /* Reduced outer container padding from 10px -> 4px */
+    padding: 4px; 
 }
 
 /* --- FLOATING LEFT TOOL PALETTE --- */
@@ -172,9 +170,9 @@ header {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 8px; /* Reduced from 12px */
+    gap: 8px; 
     z-index: 50;
-    width: 32px; /* Reduced from 36px */
+    width: 32px; 
     justify-self: center;
     align-self: center;
 }
@@ -183,16 +181,16 @@ header {
     background: rgba(20, 20, 20, 0.85);
     border: 1px solid var(--border-color);
     border-radius: 16px;
-    padding: 6px 3px; /* Reduced padding from 10px 4px */
+    padding: 6px 3px; 
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px; /* Reduced internal gap from 12px -> 8px */
+    gap: 8px; 
     backdrop-filter: blur(6px);
 }
 
 .color-dot {
-    width: 16px; /* Reduced from 18px */
+    width: 16px; 
     height: 16px;
     border-radius: 50%;
     cursor: pointer;
@@ -246,7 +244,7 @@ header {
     background: #444;
 }
 
-/* --- CANVAS AREA WRAPPER --- */
+/* --- CANVAS AREA WRAPPER (UPDATED FOR RESPONSIVE 16:9) --- */
 .board-wrapper { 
     grid-area: canvas;
     display: flex; 
@@ -256,12 +254,26 @@ header {
     width: 100%; 
     height: 100%; 
     overflow: hidden;
+    /* Enables container queries to track available grid area size */
+    container-type: size; 
 }
 
 .canvas-container { 
     box-shadow: 0 10px 40px rgba(0,0,0,0.8); 
     border: 1px solid var(--border-color); 
     background-color: #1c1c1c; 
+    
+    /* Lock the 16:9 ratio */
+    aspect-ratio: 16 / 9;
+    
+    /* Dynamically calculate size using Container Query Width (cqw) and Height (cqh) */
+    /* Prevents overflowing by choosing the limiting dimension */
+    width: min(100cqw, calc(100cqh * 16 / 9));
+    height: min(100cqh, calc(100cqw * 9 / 16));
+    
+    /* Fallback boundaries */
+    max-width: 100%;
+    max-height: 100%;
 }
 
 /* --- BOTTOM ACTION TOOLBAR --- */
@@ -306,6 +318,7 @@ header {
     gap: 3px; 
     min-width: 50px; 
     transition: background 0.15s, color 0.15s;
+    flex: 0 0 auto;
 }
 .tb-btn:hover { 
     color: white; 
@@ -414,7 +427,7 @@ header {
 
 /* --- SIDEBAR PANEL (CAMERA & SLIDE LIST) --- */
 .sidebar {
-    width: 265px; /* Reduced from 320px */
+    width: 265px; 
     background: #181818;
     border-left: 1px solid var(--border-color);
     display: flex;
@@ -425,7 +438,7 @@ header {
 
 .cam-box {
     width: 100%;
-    height: 155px; /* Reduced from 210px to save vertical chat room */
+    height: 155px; 
     background: #0a0a0a;
     border-bottom: 1px solid var(--border-color);
     position: relative;
@@ -546,7 +559,7 @@ header {
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
-    gap: 10px; /* Reduced card gap from 14px -> 10px */
+    gap: 10px; 
     padding: 6px;
     width: 100%;
     box-sizing: border-box;
@@ -585,7 +598,7 @@ header {
 }
 
 .file-card .card-info {
-    padding: 5px 8px; /* Slimmer card footer */
+    padding: 5px 8px; 
     display: flex;
     align-items: center;
     gap: 8px;
@@ -956,9 +969,10 @@ header {
     border-color: #2e6f36;
     color: #5cf272;
 }
+
 /* --- LEFT SIDEBAR (SLIDE SORTER COLUMN) --- */
 .left-sidebar {
-    width: 185px; /* Reduced from 240px */
+    width: 185px; 
     background: #181818;
     border-right: 1px solid var(--border-color);
     display: flex;
@@ -966,114 +980,9 @@ header {
     z-index: 80;
     flex-shrink: 0;
     box-sizing: border-box;
-    overflow-x: hidden; /* Removes the bottom horizontal scrollbar */
+    overflow-x: hidden; 
 }
 
-/* --- RIGHT SIDEBAR CHATBOX CONTAINER --- */
-.chat-manager {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    background: #141414;
-    overflow: hidden;
-    border-top: 1px solid var(--border-color);
-}
-
-.chat-header {
-    padding: 10px 14px;
-    font-size: 11px;
-    font-weight: bold;
-    color: #888;
-    border-bottom: 1px solid #222;
-    background: #181818;
-    letter-spacing: 0.5px;
-}
-
-.chat-messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    font-size: 12px;
-}
-
-.chat-messages .sys-msg {
-    color: #666;
-    font-style: italic;
-    text-align: center;
-    font-size: 11px;
-    margin: 4px 0;
-}
-
-.chat-msg {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    background: #222;
-    padding: 8px 10px;
-    border-radius: 6px;
-    border-left: 3px solid #555;
-}
-
-.chat-msg.educator-msg {
-    border-left-color: var(--brand-accent);
-    background: #281a14;
-}
-
-.chat-msg .sender {
-    font-size: 10px;
-    font-weight: 700;
-    color: #aaa;
-}
-
-.chat-msg.educator-msg .sender {
-    color: var(--brand-accent);
-}
-
-.chat-msg .text {
-    color: #eee;
-    word-break: break-word;
-    line-height: 1.3;
-}
-
-.chat-input-area {
-    display: flex;
-    padding: 10px;
-    background: #181818;
-    border-top: 1px solid #222;
-    gap: 8px;
-}
-
-.chat-input-area input {
-    flex: 1;
-    background: #0a0a0a;
-    border: 1px solid #333;
-    border-radius: 4px;
-    padding: 8px 10px;
-    color: white;
-    font-size: 12px;
-    outline: none;
-}
-.chat-input-area input:focus {
-    border-color: var(--brand-accent);
-}
-
-.chat-input-area button {
-    background: var(--brand-accent);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 8px 14px;
-    font-size: 12px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: opacity 0.15s;
-}
-.chat-input-area button:hover {
-    opacity: 0.85;
-}
 /* --- RIGHT SIDEBAR CHATBOX CONTAINER --- */
 .chat-manager {
     flex: 1;
@@ -1189,3 +1098,80 @@ header {
 .chat-input-area button:hover {
     opacity: 0.85;
 }
+
+.main-wrapper {
+  /* This ensures the container perfectly fits the visible screen */
+  height: 100dvh; 
+  width: 100%;
+  
+  /* Use flexbox to organize your header, practice area, and footer */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; 
+}
+
+.quick-tool-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px; /* Space between tools */
+  
+  /* 1. Enable horizontal scrolling */
+  overflow-x: auto; 
+  
+  /* 2. Prevent flex items from wrapping to a new line */
+  flex-wrap: nowrap; 
+  
+  /* 3. Smooth scrolling on touch devices (iOS) */
+  -webkit-overflow-scrolling: touch; 
+  
+  /* Optional: add some padding so items don't touch the very edge */
+  padding: 5px; 
+}
+.tool-button {
+  /* Prevent the buttons from shrinking when the screen is narrow */
+  flex: 0 0 auto; 
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.quick-tool-bar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.quick-tool-bar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+.main-toolbar {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px; /* Space between the groups */
+}
+
+.pager-group,
+.actions-group {
+    display: flex;
+    flex-shrink: 0; /* Forces them to stay their full natural width */
+}
+
+.tools-group {
+    display: flex;
+    flex-wrap: nowrap; /* Forces buttons to stay in one line */
+    
+    /* The Magic Trick: Allows the container to shrink smaller than its buttons */
+    min-width: 0; 
+    
+    /* Enables horizontal scrolling */
+    overflow-x: auto; 
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on mobile */
+}
+.tools-group::-webkit-scrollbar {
+    display: none;
+}
+.tools-group {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+}
+
