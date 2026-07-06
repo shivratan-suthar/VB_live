@@ -1,7 +1,8 @@
 /**
  * PLAYER2.JS — Real-Time Live Receiver & Lobby Discovery Engine
- * Features: Socket.IO & PeerJS WebRTC receiver, dynamic whiteboard sync, 
- * strict lobby room guards, network reconnection resilience, host grace buffer, canvas resync, and live chat.
+ * Features: Socket.IO & PeerJS WebRTC receiver, synchronized TURN/TURNS fireproof architecture,
+ * dynamic whiteboard sync, strict lobby room guards, network reconnection resilience, 
+ * player ICE watchdog timers, canvas resync, instant lobby execution, auto-polling, and live chat.
  */
 
 // --- 1. CONFIGURATION & NETWORK SETUP ---
@@ -9,25 +10,51 @@ window.ROOM_ID = null; // Dynamically set when choosing a stream card
 const LEARNER_PEER_ID = 'learner-' + Math.floor(Math.random() * 100000);
 const SERVER_URL = 'https://api.sutharx.in';
 
-// FIX: Declare the pending stream variable to prevent the PeerJS race condition
 let pendingStreamRequestRoomId = null;
+let connectionWatchdogTimer = null; // Catch silent connection handoff blocks
+let lobbyPollingInterval = null;    // Auto-refresh lobby grid
 
 // Attach directly to window.liveSocket first
 window.liveSocket = io(SERVER_URL, {
     extraHeaders: { "ngrok-skip-browser-warning": "true" }
 });
-// Create a local reference alias safely
 const liveSocket = window.liveSocket;
 
+// GLOBALLY ALIGNED FIREPROOF ICE CONFIGURATION (Matches Recorder Engine)
 const peer = new Peer(LEARNER_PEER_ID, {
     config: {
         iceServers: [
-            { urls: 'stun:stun.relay.metered.ca:80' },
+            // Standard Global STUN Servers
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'turn:a.relay.metered.ca:80', username: '2f2a84ff07ed9b7fb5e9cc21', credential: 'Uvfc7zqabCwxCkt4' },
-            { urls: 'turn:a.relay.metered.ca:443', username: '2f2a84ff07ed9b7fb5e9cc21', credential: 'Uvfc7zqabCwxCkt4' },
-            { urls: 'turn:a.relay.metered.ca:443?transport=tcp', username: '2f2a84ff07ed9b7fb5e9cc21', credential: 'Uvfc7zqabCwxCkt4' }
-        ]
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun.cloudflare.com:3478' },
+            
+            // Standard TURN (UDP/TCP fallback)
+            { 
+                urls: 'turn:a.relay.metered.ca:80', 
+                username: '2f2a84ff07ed9b7fb5e9cc21', 
+                credential: 'Uvfc7zqabCwxCkt4' 
+            },
+            { 
+                urls: 'turn:a.relay.metered.ca:443?transport=tcp', 
+                username: '2f2a84ff07ed9b7fb5e9cc21', 
+                credential: 'Uvfc7zqabCwxCkt4' 
+            },
+            
+            // CRITICAL FOR RESTRICTIVE WI-FI & MOBILE DATA: Encrypted TURN over TLS (TURNS)
+            // Tunnels media through port 443 disguised as secure HTTPS web browsing traffic
+            { 
+                urls: 'turns:a.relay.metered.ca:443?transport=tcp', 
+                username: '2f2a84ff07ed9b7fb5e9cc21', 
+                credential: 'Uvfc7zqabCwxCkt4' 
+            },
+            { 
+                urls: 'turns:a.relay.metered.ca:5349?transport=tcp', 
+                username: '2f2a84ff07ed9b7fb5e9cc21', 
+                credential: 'Uvfc7zqabCwxCkt4' 
+            }
+        ],
+        iceCandidatePoolSize: 10
     }
 });
 
@@ -38,7 +65,6 @@ peer.on('open', (id) => {
     console.log('[+] Learner PeerJS ready with ID:', id);
     isPeerReady = true;
     
-    // FIX: Fire the delayed stream request if the user joined the lobby before PeerJS finished connecting
     if (pendingStreamRequestRoomId) {
         liveSocket.emit('request-webrtc-stream', pendingStreamRequestRoomId, { peerId: id });
         pendingStreamRequestRoomId = null;
@@ -62,25 +88,49 @@ function setStudentCamPlaceholder(isCamOn) {
 
 function attachRemoteStream(remoteStream) {
     console.log('[+] Live educator video/audio stream connected!');
+    
+    // Clear watchdog timer as the streaming connection was successfully built
+    if (connectionWatchdogTimer) {
+        clearTimeout(connectionWatchdogTimer);
+        connectionWatchdogTimer = null;
+    }
+
     if (window.camVideoFeed) {
         window.camVideoFeed.srcObject = remoteStream;
+        window.camVideoFeed.setAttribute('playsinline', 'true'); // Required for iOS Safari Wi-Fi rendering
         window.camVideoFeed.play().catch(err => console.error("Autoplay blocked:", err));
     }
     const videoTracks = remoteStream.getVideoTracks();
     if (videoTracks.length > 0) {
-        // Reverted the muted check to properly detect when the educator's camera is actually off or buffering
         setStudentCamPlaceholder(videoTracks[0].enabled && !videoTracks[0].muted);
         
         videoTracks[0].onmute = () => setStudentCamPlaceholder(false);
         videoTracks[0].onunmute = () => setStudentCamPlaceholder(true);
     }
 }
-// Answer incoming WebRTC call from educator
+
+// Answer incoming WebRTC call from educator with Player ICE State Tracking
 peer.on('call', (call) => {
     console.log('[+] Educator is calling learner. Answering...');
     window.peerCall = call;
     call.answer();
     call.on('stream', attachRemoteStream);
+
+    // AUTOMATED WI-FI WATCHDOG: Track real-time ICE health status changes
+    if (call && call.peerConnection) {
+        call.peerConnection.oniceconnectionstatechange = () => {
+            const state = call.peerConnection.iceConnectionState;
+            console.log(`[*] Player WebRTC ICE State: ${state}`);
+            
+            // If the strict Wi-Fi router drops packets or fails, pro-actively signal the recorder to redial
+            if (['failed', 'disconnected'].includes(state)) {
+                console.warn('[-] Wi-Fi/Cellular network link dropped. Forcing signaling redial...');
+                if (window.ROOM_ID) {
+                    liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
+                }
+            }
+        };
+    }
 });
 
 
@@ -100,7 +150,6 @@ liveSocket.on('connect', () => {
     const overlay = document.getElementById('reconnectingOverlay');
     if (overlay) overlay.classList.add('hidden');
     
-    // Clear any pending eviction timeouts if we re-established connection
     if (hostEvictionTimeout) {
         clearTimeout(hostEvictionTimeout);
         hostEvictionTimeout = null;
@@ -111,7 +160,6 @@ liveSocket.on('connect', () => {
         liveSocket.emit('join-room', window.ROOM_ID, LEARNER_PEER_ID, false);
         liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
         
-        // Explicitly ask the educator to send us the latest canvas state to fix offline gaps
         console.log('[*] Requesting authoritative canvas snapshot...');
         liveSocket.emit('request-canvas-resync', window.ROOM_ID);
     } else {
@@ -126,6 +174,9 @@ liveSocket.on('connect', () => {
 window.fetchActiveClasses = async function() {
     const grid = document.getElementById('liveClassesGrid');
     if (!grid) return;
+
+    // Do not fetch/overwrite lobby grid if the learner is currently sitting inside an active classroom
+    if (window.ROOM_ID) return;
 
     try {
         const response = await fetch(`${SERVER_URL}/api/live-classes`, {
@@ -184,6 +235,13 @@ liveSocket.on('live-classes-updated', (updatedList) => {
 
 window.joinSelectedLiveClass = function(roomId, classTitle) {
     window.ROOM_ID = roomId;
+    
+    // Stop background lobby polling while inside a classroom
+    if (lobbyPollingInterval) {
+        clearInterval(lobbyPollingInterval);
+        lobbyPollingInterval = null;
+    }
+
     const homeView = document.getElementById('homeViewContainer');
     const webcamBox = document.getElementById('webcamContainerWrapperBox');
     const headerTitle = document.getElementById('classroomStateHeadingTitle');
@@ -192,7 +250,6 @@ window.joinSelectedLiveClass = function(roomId, classTitle) {
     if (homeView) homeView.classList.add('hidden');
     if (webcamBox) webcamBox.style.display = 'flex';
     
-    // Wipe old chat history clean when entering a new classroom
     const chatBox = document.getElementById('playerChatMessages');
     if (chatBox) {
         chatBox.innerHTML = '<div class="sys-msg">Welcome to live chat! Be respectful.</div>';
@@ -205,7 +262,15 @@ window.joinSelectedLiveClass = function(roomId, classTitle) {
     console.log(`[*] Connecting to live stream room: ${roomId}...`);
     liveSocket.emit('join-room', roomId, LEARNER_PEER_ID, false);
 
-    // If PeerJS isn't ready yet, queue the request cleanly.
+    // Watchdog trigger loop: If signaling gets stuck due to early network blocks, force query loop
+    if (connectionWatchdogTimer) clearTimeout(connectionWatchdogTimer);
+    connectionWatchdogTimer = setTimeout(() => {
+        if (window.ROOM_ID && !window.camVideoFeed?.srcObject) {
+            console.warn("[*] Watchdog expired before stream received. Requesting explicit WebRTC poke...");
+            liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
+        }
+    }, 4000);
+
     if (isPeerReady) {
         liveSocket.emit('request-webrtc-stream', roomId, { peerId: LEARNER_PEER_ID });
     } else {
@@ -214,12 +279,10 @@ window.joinSelectedLiveClass = function(roomId, classTitle) {
     }
 };
 
-// Handle class ending (with grace buffer for accidental drops vs intentional ends)
 liveSocket.on('class-ended', (data) => {
     if (data.roomId === window.ROOM_ID) {
         const overlay = document.getElementById('reconnectingOverlay');
 
-        // CASE 1: Educator intentionally clicked "End Class"
         if (data.intentional) {
             console.log('[*] Live class was intentionally ended by the educator.');
             if (hostEvictionTimeout) clearTimeout(hostEvictionTimeout);
@@ -242,7 +305,6 @@ liveSocket.on('class-ended', (data) => {
             return;
         }
 
-        // CASE 2: Accidental network drop (Initiate 8-second recovery buffer)
         console.warn('[-] Received class-ended signal. Initiating 8-second recovery buffer...');
         if (overlay) {
             overlay.innerText = "⚠️ Host connection interrupted. Waiting for educator to resume...";
@@ -274,14 +336,31 @@ liveSocket.on('stream-ready', () => {
 
 liveSocket.on('camera-status', (data) => setStudentCamPlaceholder(data.enabled));
 
-window.addEventListener('DOMContentLoaded', () => {
+
+// --- IMMEDIATE DOM EXECUTION & 5-SECOND LOBBY POLLING ---
+function initLobbyDiscoveryEngine() {
     window.fetchActiveClasses();
-});
+    
+    // Auto-poll API every 5 seconds while in the lobby so new streams appear automatically
+    if (lobbyPollingInterval) clearInterval(lobbyPollingInterval);
+    lobbyPollingInterval = setInterval(() => {
+        if (!window.ROOM_ID) {
+            window.fetchActiveClasses();
+        }
+    }, 5000);
+}
+
+// Executes immediately if script loaded late, or waits for DOM if script loaded early
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initLobbyDiscoveryEngine);
+} else {
+    initLobbyDiscoveryEngine();
+}
 
 
 // --- 4. SLIDE DECK SYNCHRONIZATION ---
 liveSocket.on('deck-state-init', (deckPayload) => {
-    if (!window.ROOM_ID) return; // STRICT GUARD: Ignore if sitting in lobby!
+    if (!window.ROOM_ID) return;
 
     if (hostEvictionTimeout) {
         clearTimeout(hostEvictionTimeout);
@@ -324,7 +403,7 @@ window.jumpToSlideIndex = function(index) {
 
 // --- 6. LIVE WHITEBOARD ACTION RECEIVER ---
 liveSocket.on('board-action', (ev) => {
-    if (!window.ROOM_ID || !window.canvas) return; // STRICT GUARD: Ignore if sitting in lobby!
+    if (!window.ROOM_ID || !window.canvas) return;
 
     if (ev.type === 'slide-switch') window.jumpToSlideIndex(ev.index);
     else if (ev.type === 'tool-switch') {
@@ -368,7 +447,7 @@ liveSocket.on('board-action', (ev) => {
             
             if (playbackActiveObject) {
                 window.canvas.add(playbackActiveObject);
-                window.canvas.renderAll(); // Ensure shape renders immediately when placed
+                window.canvas.renderAll();
             }
         }
     } 
@@ -541,7 +620,7 @@ playerChatInput?.addEventListener('keydown', (e) => {
 });
 
 liveSocket.on('chat-message', (payload) => {
-    if (!window.ROOM_ID) return; // STRICT GUARD: Ignore if sitting in lobby!
+    if (!window.ROOM_ID) return;
     if (payload.sender === studentDisplayName) return;
     appendPlayerChatMessage(payload.sender || 'Learner', payload.text, payload.isEducator || false);
 });
