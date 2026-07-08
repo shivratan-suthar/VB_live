@@ -1,6 +1,6 @@
 /**
  * PLAYER2.JS — Real-Time Live Receiver & Lobby Discovery Engine
- * WebSocket Streaming Architecture (Replaces WebRTC)
+ * WebSocket Streaming Architecture & Immersive Mobile UI
  */
 
 // --- 1. CONFIGURATION & NETWORK SETUP ---
@@ -13,13 +13,20 @@ let hostEvictionTimeout = null;
 
 // WebSocket Media Variables
 let playerAudioCtx = null;
+let masterGainNode = null;
 let nextAudioPlayTime = 0;
 let webcamImgFeed = null;
+window.isPlaybackPaused = false;
+window.currentVolume = 1.0;
 
 // Attach directly to window.liveSocket
 window.liveSocket = io(SERVER_URL, {
     extraHeaders: { "ngrok-skip-browser-warning": "true" }
 });
+window.mediaSocket = io('https://media.sutharx.in', {
+    extraHeaders: { "ngrok-skip-browser-warning": "true" }
+});
+
 const liveSocket = window.liveSocket;
 
 // Drawing state variables
@@ -36,8 +43,12 @@ function setStudentCamPlaceholder(isCamOn) {
 }
 
 function initReceiverMedia() {
+    // Initialize Audio Engine with Master Volume Node
     if (!playerAudioCtx) {
         playerAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        masterGainNode = playerAudioCtx.createGain();
+        masterGainNode.gain.value = window.currentVolume;
+        masterGainNode.connect(playerAudioCtx.destination);
     }
     
     // Replace the HTML5 video element with an img element for WebSocket JPEG frames
@@ -57,6 +68,30 @@ function initReceiverMedia() {
         camBox.appendChild(webcamImgFeed);
     }
 }
+
+// Global Playback Controls for UI to hook into
+window.toggleLivePlayback = function() {
+    window.isPlaybackPaused = !window.isPlaybackPaused;
+    const btn = document.getElementById('btnModernPlayPause');
+    if (btn) btn.textContent = window.isPlaybackPaused ? "▶" : "⏸";
+    
+    if (playerAudioCtx) {
+        if (window.isPlaybackPaused) {
+            playerAudioCtx.suspend();
+        } else {
+            playerAudioCtx.resume();
+            nextAudioPlayTime = playerAudioCtx.currentTime; // Reset buffer to prevent burst
+        }
+    }
+};
+
+window.setLiveVolume = function(vol) {
+    window.currentVolume = vol;
+    if (masterGainNode) {
+        masterGainNode.gain.value = vol;
+    }
+};
+
 
 // --- 2. NETWORK LIFECYCLE & RECONNECTION MANAGEMENT ---
 liveSocket.on('disconnect', (reason) => {
@@ -89,6 +124,14 @@ liveSocket.on('connect', () => {
         if (typeof window.fetchActiveClasses === 'function') {
             window.fetchActiveClasses();
         }
+    }
+});
+
+// Ensure media socket reconnects to the room
+window.mediaSocket.on('connect', () => {
+    if (window.ROOM_ID) {
+        console.log(`[*] Media socket connected. Joining room: ${window.ROOM_ID}...`);
+        window.mediaSocket.emit('join-room', window.ROOM_ID);
     }
 });
 
@@ -155,15 +198,32 @@ liveSocket.on('live-classes-updated', (updatedList) => {
     renderLobbyGrid(updatedList);
 });
 
-window.joinSelectedLiveClass = function(roomId, classTitle) {
+window.joinSelectedLiveClass = async function(roomId, classTitle) {
     window.ROOM_ID = roomId;
     
+    // --- Force Fullscreen & Landscape on Mobile ---
+    if (window.innerWidth <= 768) {
+        try {
+            const docEl = document.documentElement;
+            if (docEl.requestFullscreen) {
+                await docEl.requestFullscreen();
+            } else if (docEl.webkitRequestFullscreen) {
+                await docEl.webkitRequestFullscreen();
+            }
+            if (screen.orientation && screen.orientation.lock) {
+                await screen.orientation.lock('landscape');
+            }
+        } catch (err) {
+            console.warn("[-] Auto-rotation/Fullscreen denied by browser:", err);
+        }
+    }
+
     if (lobbyPollingInterval) {
         clearInterval(lobbyPollingInterval);
         lobbyPollingInterval = null;
     }
 
-    // Initialize the Audio Context and JPEG feed
+    // Initialize the Audio Context, Gain Node, and JPEG feed
     initReceiverMedia();
 
     const homeView = document.getElementById('homeViewContainer');
@@ -179,12 +239,20 @@ window.joinSelectedLiveClass = function(roomId, classTitle) {
         chatBox.innerHTML = '<div class="sys-msg">Welcome to live chat! Be respectful.</div>';
     }
 
+    // Sync Play/Pause button
+    window.isPlaybackPaused = false;
+    const playBtn = document.getElementById('btnModernPlayPause');
+    if (playBtn) playBtn.textContent = "⏸";
+
     if (typeof window.syncCanvasDimensionsToWrapper === 'function') {
-        window.syncCanvasDimensionsToWrapper();
+        setTimeout(window.syncCanvasDimensionsToWrapper, 300);
     }
 
     console.log(`[*] Connecting to live stream room: ${roomId}...`);
     liveSocket.emit('join-room', roomId, LEARNER_PEER_ID, false);
+    
+    // Join the room on the media socket as well
+    window.mediaSocket.emit('join-room', roomId);
 };
 
 liveSocket.on('class-ended', (data) => {
@@ -234,21 +302,18 @@ liveSocket.on('class-ended', (data) => {
 
 
 // --- 4. WEBSOCKET MEDIA RECEIVERS (Anti-Pileup Engine) ---
-// --- 4. WEBSOCKET MEDIA RECEIVERS (Anti-Pileup Engine) ---
-liveSocket.on('ws-video-frame', (data) => {
-    // WebSockets run on TCP, which guarantees in-order delivery.
-    // We don't need timestamp checks for video; just paint the newest frame.
+window.mediaSocket.on('ws-video-frame', (data) => {
+    if (window.isPlaybackPaused) return; // FREEZE VIDEO IF PAUSED
     
     if (webcamImgFeed) {
         webcamImgFeed.src = data.frame;
     }
     
-    // FIX: Passing TRUE means "Yes, the camera is on", hiding the black placeholder text!
     setStudentCamPlaceholder(true);
 });
 
-liveSocket.on('ws-audio-chunk', (data) => {
-    if (!playerAudioCtx) return;
+window.mediaSocket.on('ws-audio-chunk', (data) => {
+    if (window.isPlaybackPaused || !playerAudioCtx) return; // DROP AUDIO IF PAUSED
     
     const floatData = new Float32Array(data.audio);
     const audioBuffer = playerAudioCtx.createBuffer(1, floatData.length, data.sampleRate);
@@ -256,7 +321,9 @@ liveSocket.on('ws-audio-chunk', (data) => {
     
     const source = playerAudioCtx.createBufferSource();
     source.buffer = audioBuffer;
-    source.connect(playerAudioCtx.destination);
+    
+    // CONNECT TO GAIN NODE INSTEAD OF DESTINATION
+    source.connect(masterGainNode);
     
     const currentTime = playerAudioCtx.currentTime;
     
@@ -343,6 +410,7 @@ window.jumpToSlideIndex = function(index) {
 
 // --- 8. LIVE WHITEBOARD ACTION RECEIVER ---
 liveSocket.on('board-action', (ev) => {
+    if (window.isPlaybackPaused) return; // FREEZE BOARD IF PAUSED
     if (!window.ROOM_ID || !window.canvas) return;
 
     if (ev.type === 'slide-switch') window.jumpToSlideIndex(ev.index);
@@ -357,9 +425,11 @@ liveSocket.on('board-action', (ev) => {
         playbackDrawColor = ev.color; playbackDrawTool = ev.tool;
         if (typeof window.updateCursorVisualState === 'function') window.updateCursorVisualState(ev.x, ev.y, ev.tool, ev.color);
 
-        if (['pen', 'highlight', 'pointer'].includes(ev.tool)) {
+        if (['pen', 'highlight', 'pointer', 'laser'].includes(ev.tool)) {
             playbackActivePoints = [{ x: ev.x, y: ev.y }];
-            const sColor = ev.tool === 'pointer' ? '#ff0000' : ev.color;
+            
+            // Support both pointer and laser names
+            const sColor = (ev.tool === 'pointer' || ev.tool === 'laser') ? '#ff0000' : ev.color;
             const sOpacity = ev.tool === 'highlight' ? 0.5 : 1.0;
             const sWidth = ev.tool === 'highlight' ? ev.width * 4 : ev.width;
             
@@ -367,6 +437,10 @@ liveSocket.on('board-action', (ev) => {
                 stroke: sColor, strokeWidth: sWidth, fill: 'transparent', opacity: sOpacity, strokeLineCap: 'round', strokeLineJoin: 'round', selectable: false, id: ev.objectId, slideIndex: ev.slideIndex !== undefined ? ev.slideIndex : window.activeSlideIndex, visible: window.areAnnotationsVisible
             };
             playbackActiveObject = new fabric.Path(window.getSmoothPathFromPoints(playbackActivePoints), playbackActivePathProps);
+            
+            // Tag the object so we know to delay its removal later
+            playbackActiveObject.isPointerStroke = (ev.tool === 'pointer' || ev.tool === 'laser');
+            
             window.canvas.add(playbackActiveObject);
         }
         else if (ev.tool === 'text') {
@@ -393,10 +467,14 @@ liveSocket.on('board-action', (ev) => {
     } 
     else if (ev.type === 'draw-move') {
         if (typeof window.updateCursorVisualState === 'function') window.updateCursorVisualState(ev.x, ev.y, playbackDrawTool, playbackDrawColor);
-        if (playbackActivePoints && playbackActiveObject && ['pen', 'highlight', 'pointer'].includes(playbackDrawTool)) {
+        if (playbackActivePoints && playbackActiveObject && ['pen', 'highlight', 'pointer', 'laser'].includes(playbackDrawTool)) {
             playbackActivePoints.push({ x: ev.x, y: ev.y });
             window.canvas.remove(playbackActiveObject);
             playbackActiveObject = new fabric.Path(window.getSmoothPathFromPoints(playbackActivePoints), playbackActivePathProps);
+            
+            // Re-apply the tag to the updated path
+            playbackActiveObject.isPointerStroke = (playbackDrawTool === 'pointer' || playbackDrawTool === 'laser');
+            
             window.canvas.add(playbackActiveObject);
             window.canvas.renderAll();
         }
@@ -411,14 +489,23 @@ liveSocket.on('board-action', (ev) => {
         }
     } 
     else if (ev.type === 'draw-end') {
-        if (playbackActiveObject && playbackDrawTool === 'pointer') {
-            const ptrLine = playbackActiveObject;
-            ptrLine.animate('opacity', 0, { duration: 1000, onChange: window.canvas.renderAll.bind(window.canvas), onComplete: () => { window.canvas.remove(ptrLine); } });
-        } else if (playbackActiveObject) {
+        if (playbackActiveObject) {
             playbackActiveObject.setCoords();
-            window.canvas.renderAll();
+            window.canvas.renderAll(); 
+            
+            // This tag is set in the 'draw-start' block
+            if (playbackActiveObject.isPointerStroke) {
+                const targetToRemove = playbackActiveObject;
+                setTimeout(() => {
+                    if (window.canvas && window.canvas.getObjects().includes(targetToRemove)) {
+                        window.canvas.remove(targetToRemove);
+                        window.canvas.renderAll();
+                    }
+                }, 1000); // 1 second delay
+            }
         }
-        playbackActivePoints = []; playbackActiveObject = null;
+        playbackActivePoints = []; 
+        playbackActiveObject = null;
     }
     else if (ev.type === 'object-transform') {
         const target = window.canvas.getObjects().find(o => o.id === ev.targetId);
@@ -439,7 +526,20 @@ liveSocket.on('board-action', (ev) => {
     }
     else if (ev.type === 'erase-object') {
         const targets = window.canvas.getObjects().filter(o => o.id === ev.targetId || o.groupId === ev.targetId);
-        targets.forEach(t => window.canvas.remove(t)); window.canvas.renderAll();
+        targets.forEach(t => {
+            // Enforce the 1-second delay even if the host sends an instant erase command
+            if (t.isPointerStroke) {
+                setTimeout(() => {
+                    if (window.canvas) {
+                        window.canvas.remove(t);
+                        window.canvas.renderAll();
+                    }
+                }, 1000);
+            } else {
+                window.canvas.remove(t);
+            }
+        }); 
+        window.canvas.renderAll();
     }
     else if (ev.type === 'canvas-undo' || ev.type === 'canvas-redo') {
         const targetIdx = window.activeSlideIndex;
@@ -579,3 +679,261 @@ window.getSmoothPathFromPoints = function(points) {
     pathStr += ` L ${points[points.length - 1].x} ${points[points.length - 1].y}`;
     return pathStr;
 };
+
+
+// =====================================================================
+// 11. BI-DIRECTIONAL LEARNER A/V SHARING (Approval Flow)
+// =====================================================================
+const avCallContainer = document.getElementById('avCallContainer');
+const chatMessages = document.getElementById('playerChatMessages');
+const chatInputArea = document.getElementById('playerChatInputArea');
+const btnRequestCall = document.getElementById('btnRequestCall');
+const callStatusText = document.getElementById('callStatusText');
+const learnerSelfVideoWrapper = document.getElementById('learnerSelfVideoWrapper');
+
+let learnerLocalStream = null;
+let learnerVideoTimer = null;
+let learnerAudioCtx = null;
+let learnerScriptProcessor = null;
+let isLearnerAVActive = false;
+
+const learnerOffscreenCanvas = document.createElement('canvas');
+learnerOffscreenCanvas.width = 120;
+learnerOffscreenCanvas.height = 65;
+const learnerOffCtx = learnerOffscreenCanvas.getContext('2d', { alpha: false });
+
+// 1. Toggle the Call Menu vs Chat Menu
+document.getElementById('btnLearnerShareAV')?.addEventListener('click', () => {
+    const isCallView = !avCallContainer.classList.contains('hidden');
+    if (isCallView) {
+        avCallContainer.classList.add('hidden');
+        chatMessages.style.display = 'flex';
+        chatInputArea.style.display = 'flex';
+        document.getElementById('btnLearnerShareAV').style.color = isLearnerAVActive ? '#5cf272' : '#666';
+    } else {
+        avCallContainer.classList.remove('hidden');
+        chatMessages.style.display = 'none';
+        chatInputArea.style.display = 'none';
+        document.getElementById('btnLearnerShareAV').style.color = 'var(--brand-accent)';
+    }
+});
+
+// 2. Send Request to Educator
+function bindRequestButton() {
+    btnRequestCall.onclick = () => {
+        if (!window.ROOM_ID) {
+            alert("Please wait until you are connected to a live room to share your camera.");
+            return;
+        }
+        callStatusText.innerText = "⏳ Request sent. Waiting for educator...";
+        callStatusText.style.color = "#ffde37";
+        btnRequestCall.disabled = true;
+        
+        window.mediaSocket.emit('request-av-join', window.ROOM_ID, {
+            peerId: LEARNER_PEER_ID,
+            name: studentDisplayName
+        });
+    };
+}
+bindRequestButton();
+
+// 3. Handle Educator's Response
+window.mediaSocket.on('av-join-response', async (payload) => {
+    if (payload.peerId === LEARNER_PEER_ID) {
+        if (payload.accepted) {
+            callStatusText.innerText = "✅ Accepted! Connecting camera...";
+            callStatusText.style.color = "#5cf272";
+            
+            try {
+                learnerLocalStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 120 }, height: { ideal: 65 }, frameRate: { ideal: 15 } },
+                    audio: { echoCancellation: true, noiseSuppression: true }
+                });
+                
+                isLearnerAVActive = true;
+                document.getElementById('btnLearnerShareAV').classList.add('active');
+                
+                // Show Local Preview
+                learnerSelfVideoWrapper.classList.remove('hidden');
+                learnerSelfVideoWrapper.innerHTML = '';
+                const localVid = document.createElement('video');
+                localVid.autoplay = true; localVid.muted = true; localVid.playsInline = true;
+                localVid.style.cssText = "width:100%; height:100%; object-fit:cover;";
+                localVid.srcObject = learnerLocalStream;
+                learnerSelfVideoWrapper.appendChild(localVid);
+
+                // Explicitly tell the browser to play the video (bypasses some mobile autoplay restrictions)
+                localVid.play().catch(e => console.warn("Autoplay prevented:", e));
+
+                // Pass the actively rendering DOM video element directly into the streaming loop
+                startLearnerStreaming(learnerLocalStream, localVid);
+                
+                // Switch Button to "End Call"
+                btnRequestCall.innerText = "🛑 End Call";
+                btnRequestCall.style.background = "#e02020";
+                btnRequestCall.disabled = false;
+                
+                btnRequestCall.onclick = () => {
+                    stopLearnerStreaming();
+                    learnerSelfVideoWrapper.classList.add('hidden');
+                    btnRequestCall.innerText = "➕ Request Call";
+                    btnRequestCall.style.background = "var(--brand-accent)";
+                    callStatusText.innerText = "";
+                    bindRequestButton(); // Reset to request mode
+                };
+            } catch(err) {
+                console.error("[-] Hardware permission denied:", err);
+                callStatusText.innerText = "❌ Camera/Mic denied by browser.";
+                callStatusText.style.color = "#ff4b4b";
+                btnRequestCall.disabled = false;
+            }
+        } else {
+            // If the educator sends 'accepted: false' (Decline or Hang Up)
+            if (isLearnerAVActive) {
+                // Case A: The call was active, and the educator just hung up
+                stopLearnerStreaming();
+                learnerSelfVideoWrapper.classList.add('hidden');
+                btnRequestCall.innerText = "➕ Request Call";
+                btnRequestCall.style.background = "var(--brand-accent)";
+                btnRequestCall.disabled = false;
+                callStatusText.innerText = "🛑 Call ended by educator.";
+                callStatusText.style.color = "#ff4b4b";
+                bindRequestButton(); // Reset to request mode
+            } else {
+                // Case B: The educator declined the initial request
+                callStatusText.innerText = "❌ Request declined by educator.";
+                callStatusText.style.color = "#ff4b4b";
+                btnRequestCall.disabled = false;
+            }
+        }
+    }
+});
+
+function startLearnerStreaming(stream, videoEl) {
+    // 1. Video Broadcast Loop (15 FPS target)
+    learnerVideoTimer = setInterval(() => {
+        // Ensure the video element is valid and currently playing
+        if (!isLearnerAVActive || !window.ROOM_ID || !videoEl) return;
+        
+        // Draw the frame directly from the actively playing DOM video element
+        learnerOffCtx.drawImage(videoEl, 0, 0, 120, 65);
+        const frameData = learnerOffscreenCanvas.toDataURL('image/jpeg', 0.5); 
+        
+        window.mediaSocket.volatile.emit('learner-video-frame', window.ROOM_ID, {
+            peerId: LEARNER_PEER_ID,
+            name: studentDisplayName,
+            frame: frameData,
+            timestamp: Date.now() // Timestamp applied for client-side hard drops
+        });
+    }, 66);
+
+    // 2. Audio Broadcast Loop
+    learnerAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const audioSource = learnerAudioCtx.createMediaStreamSource(stream);
+    learnerScriptProcessor = learnerAudioCtx.createScriptProcessor(4096, 1, 1);
+    
+    audioSource.connect(learnerScriptProcessor);
+    learnerScriptProcessor.connect(learnerAudioCtx.destination);
+    
+    learnerScriptProcessor.onaudioprocess = (e) => {
+        if (!isLearnerAVActive || !window.ROOM_ID) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+        
+        window.mediaSocket.volatile.emit('learner-audio-chunk', window.ROOM_ID, {
+            peerId: LEARNER_PEER_ID,
+            audio: inputData.buffer,
+            sampleRate: learnerAudioCtx.sampleRate,
+            timestamp: Date.now()
+        });
+    };
+}
+function stopLearnerStreaming() {
+    isLearnerAVActive = false;
+    if (learnerVideoTimer) clearInterval(learnerVideoTimer);
+    if (learnerLocalStream) learnerLocalStream.getTracks().forEach(t => t.stop());
+    if (learnerAudioCtx && learnerAudioCtx.state !== 'closed') learnerAudioCtx.close();
+    if (learnerScriptProcessor) learnerScriptProcessor.disconnect();
+    
+    document.getElementById('btnLearnerShareAV').classList.remove('active');
+    document.getElementById('btnLearnerShareAV').style.color = '#666';
+
+    if (window.ROOM_ID) {
+        window.mediaSocket.emit('learner-stopped-av', window.ROOM_ID, LEARNER_PEER_ID);
+    }
+}
+
+// 4. Receiving OTHER learners' A/V Streams
+const activeLearnerNodes = {};
+const learnerAudioEngines = {};
+let learnerUIPositionIndex = 0;
+
+window.mediaSocket.on('learner-video-frame', (data) => {
+    if (window.isPlaybackPaused || data.peerId === LEARNER_PEER_ID) return;
+    
+    // HARD LATENCY DROP: Skip frame entirely if it took more than 800ms to arrive.
+    if (Date.now() - data.timestamp > 800) return;
+
+    let learnerBox = document.getElementById(`learner-cam-${data.peerId}`);
+    
+    // Create a new PIP box if this learner hasn't been seen before
+    if (!learnerBox) {
+        learnerBox = document.createElement('div');
+        learnerBox.id = `learner-cam-${data.peerId}`;
+        
+        // Dynamically stack learner boxes on the left side of the screen
+        const bottomOffset = 80 + (learnerUIPositionIndex * 75);
+        learnerBox.style.cssText = `position:absolute; bottom:${bottomOffset}px; left:20px; width:120px; height:65px; border:2px solid #5cf272; border-radius:6px; overflow:hidden; z-index:9999; box-shadow:0 4px 10px rgba(0,0,0,0.5);`;
+        
+        const img = document.createElement('img');
+        img.style.width = "100%"; img.style.height = "100%"; img.style.objectFit = "cover";
+        learnerBox.appendChild(img);
+        
+        const nameLabel = document.createElement('div');
+        nameLabel.innerText = data.name;
+        nameLabel.style.cssText = "position:absolute; bottom:2px; left:4px; font-size:9px; font-weight:bold; color:#fff; text-shadow:0 1px 3px #000; background:rgba(0,0,0,0.4); padding:1px 4px; border-radius:3px;";
+        learnerBox.appendChild(nameLabel);
+        
+        document.body.appendChild(learnerBox);
+        learnerUIPositionIndex++;
+    }
+    
+    learnerBox.querySelector('img').src = data.frame;
+});
+
+window.mediaSocket.on('learner-audio-chunk', (data) => {
+    if (window.isPlaybackPaused || !playerAudioCtx || data.peerId === LEARNER_PEER_ID) return;
+    
+    // HARD LATENCY DROP: Skip audio chunk if lagging to prevent echo pileups
+    if (Date.now() - data.timestamp > 1000) return;
+
+    if (!learnerAudioEngines[data.peerId]) {
+        learnerAudioEngines[data.peerId] = { nextPlayTime: playerAudioCtx.currentTime };
+    }
+    let engine = learnerAudioEngines[data.peerId];
+
+    const floatData = new Float32Array(data.audio);
+    const audioBuffer = playerAudioCtx.createBuffer(1, floatData.length, data.sampleRate);
+    audioBuffer.getChannelData(0).set(floatData);
+    
+    const source = playerAudioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(masterGainNode); // Route through the player's master volume slider
+    
+    const currentTime = playerAudioCtx.currentTime;
+    
+    // Buffer overflow catch
+    if (engine.nextPlayTime > currentTime + 0.3) return; 
+    if (engine.nextPlayTime < currentTime) engine.nextPlayTime = currentTime;
+    
+    source.start(engine.nextPlayTime);
+    engine.nextPlayTime += audioBuffer.duration;
+});
+
+window.mediaSocket.on('learner-stopped-av', (peerId) => {
+    const box = document.getElementById(`learner-cam-${peerId}`);
+    if (box) {
+        box.remove();
+        learnerUIPositionIndex = Math.max(0, learnerUIPositionIndex - 1);
+    }
+    delete learnerAudioEngines[peerId];
+});

@@ -12,6 +12,10 @@ const EDUCATOR_PEER_ID = 'educator-' + window.ROOM_ID;
 window.liveSocket = io('https://api.sutharx.in', {
     extraHeaders: { "ngrok-skip-browser-warning": "true" }
 });
+window.mediaSocket = io('https://media.sutharx.in', {
+    extraHeaders: { "ngrok-skip-browser-warning": "true" }
+});
+
 
 window.isRecording = false; 
 window.recordStartTime = 0; 
@@ -73,6 +77,14 @@ window.liveSocket.on('connect', () => {
     }
 });
 
+// Ensure media socket reconnects to the room
+window.mediaSocket.on('connect', () => {
+    if (window.isRecording && window.ROOM_ID) {
+        console.log('[+] Media Socket connected/reconnected. Re-joining room...');
+        window.mediaSocket.emit('join-room', window.ROOM_ID);
+    }
+});
+
 // =====================================================================
 // 2. LIVE TIMER UTILITIES
 // =====================================================================
@@ -100,8 +112,45 @@ function stopLiveTimer() {
 }
 
 // =====================================================================
-// 3. WEBSOCKET LIVE STREAMING (Video @ 24fps & Audio PCM)
+// 2.5 LIVE PING MONITOR
 // =====================================================================
+let pingInterval = null;
+
+function startPingMonitor() {
+    const pingEl = document.getElementById('pingDisplay');
+    if (pingEl) pingEl.classList.remove('hidden');
+
+    // Ping the server every 2 seconds
+    pingInterval = setInterval(() => {
+        if (!window.liveSocket || !window.isRecording || !window.ROOM_ID) return;
+        
+        const start = Date.now();
+        
+        // Volatile emit prevents socket from buffering pings if disconnected
+        window.liveSocket.volatile.emit('client-ping', () => {
+            const latency = Date.now() - start;
+            if (pingEl) {
+                pingEl.innerText = `📶 ${latency}ms`;
+                
+                // Color-code the latency
+                if (latency < 100) pingEl.style.color = '#5cf272';      // Green (Good)
+                else if (latency < 300) pingEl.style.color = '#ffde37'; // Yellow (Warning)
+                else pingEl.style.color = '#ff4b4b';                    // Red (Bad)
+            }
+        });
+    }, 2000);
+}
+
+function stopPingMonitor() {
+    clearInterval(pingInterval);
+    const pingEl = document.getElementById('pingDisplay');
+    if (pingEl) {
+        pingEl.classList.add('hidden');
+        pingEl.innerText = `📶 0ms`;
+        pingEl.style.color = 'var(--text-muted)';
+    }
+}
+
 // =====================================================================
 // 3. WEBSOCKET LIVE STREAMING (Video @ 15fps & Audio PCM)
 // =====================================================================
@@ -116,9 +165,8 @@ function startWebSocketStreaming(stream) {
         // Reduced quality to 0.5 to ensure fast Socket.io transmission
         const frameData = offscreenCanvas.toDataURL('image/jpeg', 0.5);
         
-        window.liveSocket.volatile.emit('ws-video-frame', window.ROOM_ID, {
+        window.mediaSocket.volatile.emit('ws-video-frame', window.ROOM_ID, {
             frame: frameData
-            // Removed cross-device timestamp to prevent clock-drift bugs
         });
     }, 66);
 
@@ -137,16 +185,16 @@ function startWebSocketStreaming(stream) {
             
             const inputData = e.inputBuffer.getChannelData(0);
             
-            window.liveSocket.volatile.emit('ws-audio-chunk', window.ROOM_ID, {
+            window.mediaSocket.volatile.emit('ws-audio-chunk', window.ROOM_ID, {
                 audio: inputData.buffer,
                 sampleRate: audioCtx.sampleRate
-                // Removed cross-device timestamp
             });
         };
     } catch (err) {
         console.error("[-] Failed to initialize audio context for streaming:", err);
     }
 }
+
 function stopWebSocketStreaming() {
     if (videoStreamTimer) clearInterval(videoStreamTimer);
     if (audioCtx && audioCtx.state !== 'closed') {
@@ -288,7 +336,6 @@ btnMute?.addEventListener('click', async (e) => {
     }
 });
 
-
 // =====================================================================
 // 6. LIVE ACTION LOGGING & BROADCASTING
 // =====================================================================
@@ -309,7 +356,6 @@ window.jumpToSlideIndex = function(index) {
     window.broadcastDeckState();
 };
 
-
 // =====================================================================
 // 7. DYNAMIC LIVE ROOM LOBBY BROADCAST CONTROLLER
 // =====================================================================
@@ -323,25 +369,8 @@ liveBadge?.addEventListener('click', async () => {
     }
     
     if (window.isRecording) {
-        if (typeof window.saveCurrentSlideState === 'function') window.saveCurrentSlideState();
-        window.isRecording = false; 
-        
-        if (window.liveSocket && window.ROOM_ID) {
-            window.liveSocket.emit('end-class', window.ROOM_ID);
-        }
-
-        liveBadge.textContent = "🔴 Start Live Room";
-        liveBadge.classList.remove('recording');
-        
-        stopLiveTimer();
-        stopWebSocketStreaming();
-        if (liveAttendanceCounter) {
-            liveAttendanceCounter.classList.add('hidden');
-        }
-        
-        setTimeout(() => {
-            window.location.reload();
-        }, 150);
+        // Show the confirmation modal instead of immediately stopping
+        document.getElementById('endClassConfirmModal').style.display = 'flex';
         return;
     }
     
@@ -365,12 +394,16 @@ document.getElementById('btnConfirmLiveStart')?.addEventListener('click', () => 
     console.log(`[*] Registering room ${window.ROOM_ID} as "${enteredTitle}"...`);
     window.liveSocket.emit('join-room', window.ROOM_ID, EDUCATOR_PEER_ID, true, enteredTitle);
 
+    // Register the room on the media server
+    window.mediaSocket.emit('join-room', window.ROOM_ID);
+
     window.isRecording = true; 
     window.recordStartTime = Date.now(); 
     liveBadge.textContent = "📡 LIVE BROADCASTING";
     liveBadge.classList.add('recording');
     
     startLiveTimer();
+    startPingMonitor();
     
     if (liveAttendanceCounter) {
         liveAttendanceCounter.innerText = "👥 0 Watching";
@@ -500,4 +533,217 @@ window.addEventListener('keyup', (e) => {
         const hud = document.getElementById('shortcutHudOverlay');
         if (hud) hud.style.display = 'none'; 
     } 
+});
+
+
+// =====================================================================
+// 10. END CLASS & REFRESH CONFIRMATION LOGIC
+// =====================================================================
+
+// Handle Cancel Button in the End Class Modal
+document.getElementById('btnCancelEndClass')?.addEventListener('click', () => {
+    document.getElementById('endClassConfirmModal').style.display = 'none';
+});
+
+// Handle Confirm Button in the End Class Modal
+document.getElementById('btnConfirmEndClass')?.addEventListener('click', () => {
+    document.getElementById('endClassConfirmModal').style.display = 'none';
+    
+    if (typeof window.saveCurrentSlideState === 'function') window.saveCurrentSlideState();
+    window.isRecording = false; 
+    
+    if (window.liveSocket && window.ROOM_ID) {
+        window.liveSocket.emit('end-class', window.ROOM_ID);
+    }
+
+    liveBadge.textContent = "🔴 Start Live Room";
+    liveBadge.classList.remove('recording');
+    
+    stopLiveTimer();
+    stopPingMonitor();
+    stopWebSocketStreaming();
+    if (liveAttendanceCounter) {
+        liveAttendanceCounter.classList.add('hidden');
+    }
+    
+    setTimeout(() => {
+        window.location.reload();
+    }, 150);
+});
+
+// Warn the user if they try to refresh or close the tab while live
+window.addEventListener('beforeunload', (e) => {
+    if (window.isRecording) {
+        e.preventDefault();
+        // The browser will display its own native warning dialog
+        e.returnValue = "You are currently broadcasting a live class. Are you sure you want to leave and end the session?";
+        return e.returnValue;
+    }
+});
+
+// =====================================================================
+// 11. EDUCATOR-SIDE LEARNER A/V CALL MANAGER
+// =====================================================================
+
+// --- Tab Switching Logic ---
+// --- Tab Switching Logic ---
+const tabChat = document.getElementById('tabChat');
+const tabCalls = document.getElementById('tabCalls');
+const chatView = document.getElementById('chatViewContainer');
+const callView = document.getElementById('callViewContainer');
+const callBadge = document.getElementById('callBadge');
+const noCallsMsg = document.getElementById('noCallsMsg');
+const incomingCallRequests = document.getElementById('incomingCallRequests');
+
+tabChat?.addEventListener('click', () => {
+    tabChat.classList.add('active-tab');
+    tabCalls.classList.remove('active-tab');
+    
+    chatView.style.display = 'flex';
+    callView.style.display = 'none';
+});
+
+tabCalls?.addEventListener('click', () => {
+    tabCalls.classList.add('active-tab');
+    tabChat.classList.remove('active-tab');
+    
+    callView.style.display = 'flex';
+    chatView.style.display = 'none';
+    
+    if (callBadge) callBadge.classList.add('hidden');
+});
+
+function checkEmptyRequests() {
+    if (incomingCallRequests && incomingCallRequests.querySelectorAll('div[id^="request-"]').length === 0) {
+        if (noCallsMsg) noCallsMsg.style.display = 'block';
+    }
+}
+
+// 1. Receive & Display Incoming Call Requests
+window.mediaSocket.on('request-av-join', (payload) => {
+    if (!incomingCallRequests) return;
+    
+    // Hide the "No pending requests" message
+    if (noCallsMsg) noCallsMsg.style.display = 'none';
+    
+    // Show notification badge if the educator is currently looking at the Chat tab
+    if (callBadge && callView.style.display === 'none') {
+        callBadge.classList.remove('hidden');
+    }
+
+    const reqCard = document.createElement('div');
+    reqCard.id = `request-${payload.peerId}`;
+    reqCard.style.cssText = "background:#222; border-left:3px solid #ffde37; padding:10px; border-radius:6px; display:flex; flex-direction:column; gap:8px;";
+    reqCard.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-weight:bold; color:#fff; font-size:12px;">📞 ${payload.name}</div>
+            <div style="font-size:10px; color:#aaa;">Wants to join</div>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:4px;">
+            <button class="btn-accept-call" style="flex:1; background:#5cf272; color:#111; border:none; padding:6px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">Accept</button>
+            <button class="btn-decline-call" style="flex:1; background:#444; color:#fff; border:none; padding:6px; border-radius:4px; cursor:pointer; font-size:11px;">Decline</button>
+        </div>
+    `;
+    
+    // Handle Accept
+    reqCard.querySelector('.btn-accept-call').onclick = () => {
+        window.mediaSocket.emit('av-join-response', window.ROOM_ID, { peerId: payload.peerId, accepted: true });
+        reqCard.remove();
+        checkEmptyRequests();
+    };
+    
+    // Handle Decline
+    reqCard.querySelector('.btn-decline-call').onclick = () => {
+        window.mediaSocket.emit('av-join-response', window.ROOM_ID, { peerId: payload.peerId, accepted: false });
+        reqCard.remove();
+        checkEmptyRequests();
+    };
+    
+    incomingCallRequests.appendChild(reqCard);
+});
+
+// 2. Render Learner Video & Audio inside the Educator's Call Window
+const activeLearnerNodes = {};
+let activeLearnerAudioCtx = null;
+
+window.mediaSocket.on('learner-video-frame', (data) => {
+    let container = document.getElementById('activeLearnerCalls');
+    let learnerBox = document.getElementById(`educator-learner-cam-${data.peerId}`);
+    
+    // Drop latency > 800ms
+    if (Date.now() - data.timestamp > 800) return;
+    
+    if (!learnerBox) {
+        // Initialize Audio Context on first accepted connection to bypass browser autoplay policy
+        if (!activeLearnerAudioCtx) {
+            activeLearnerAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        learnerBox = document.createElement('div');
+        learnerBox.id = `educator-learner-cam-${data.peerId}`;
+        learnerBox.style.cssText = `width:120px; height:65px; border:2px solid #5cf272; border-radius:4px; overflow:hidden; position:relative; flex-shrink:0; box-shadow: 0 2px 8px rgba(0,0,0,0.5);`;
+        
+        const img = document.createElement('img');
+        img.style.cssText = "width:100%; height:100%; object-fit:cover;";
+        learnerBox.appendChild(img);
+        
+        const nameLabel = document.createElement('div');
+        nameLabel.innerText = data.name;
+        nameLabel.style.cssText = "position:absolute; bottom:2px; left:4px; font-size:9px; font-weight:bold; color:#fff; text-shadow:0 1px 3px #000; background:rgba(0,0,0,0.4); padding:1px 4px; border-radius:3px;";
+        learnerBox.appendChild(nameLabel);
+        
+        // Add Hang Up button for Educator
+        const kickBtn = document.createElement('div');
+        kickBtn.innerText = "📞 End";
+        kickBtn.title = "Hang Up";
+        kickBtn.style.cssText = "position:absolute; top:2px; right:2px; font-size:9px; color:white; background:#e02020; border-radius:4px; padding:2px 4px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:bold; z-index:10;";
+        kickBtn.onclick = () => {
+            // 1. Tell the learner to shut down their camera and reset their UI
+            window.mediaSocket.emit('av-join-response', window.ROOM_ID, { peerId: data.peerId, accepted: false });
+            
+            // 2. Remove the learner's video from the Educator's chat gallery
+            learnerBox.remove();
+            
+            // 3. Clean up the audio engine so it stops playing
+            delete activeLearnerNodes[data.peerId];
+        };
+        learnerBox.appendChild(kickBtn);
+
+        container.appendChild(learnerBox);
+        container.style.display = 'flex'; // Ensure gallery is visible
+    }
+    
+    learnerBox.querySelector('img').src = data.frame;
+});
+
+window.mediaSocket.on('learner-audio-chunk', (data) => {
+    // Drop latency > 1000ms
+    if (Date.now() - data.timestamp > 1000) return;
+    if (!activeLearnerAudioCtx) return;
+    
+    if (!activeLearnerNodes[data.peerId]) {
+        activeLearnerNodes[data.peerId] = { nextPlayTime: activeLearnerAudioCtx.currentTime };
+    }
+    let engine = activeLearnerNodes[data.peerId];
+
+    const floatData = new Float32Array(data.audio);
+    const audioBuffer = activeLearnerAudioCtx.createBuffer(1, floatData.length, data.sampleRate);
+    audioBuffer.getChannelData(0).set(floatData);
+    
+    const source = activeLearnerAudioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(activeLearnerAudioCtx.destination); 
+    
+    const currentTime = activeLearnerAudioCtx.currentTime;
+    if (engine.nextPlayTime > currentTime + 0.3) return; 
+    if (engine.nextPlayTime < currentTime) engine.nextPlayTime = currentTime;
+    
+    source.start(engine.nextPlayTime);
+    engine.nextPlayTime += audioBuffer.duration;
+});
+
+window.mediaSocket.on('learner-stopped-av', (peerId) => {
+    const box = document.getElementById(`educator-learner-cam-${peerId}`);
+    if (box) box.remove();
+    delete activeLearnerNodes[peerId];
 });

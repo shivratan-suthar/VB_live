@@ -222,9 +222,10 @@ window.toggleSlideMode = function(forceState) {
         if (document.fullscreenElement) {
             document.exitFullscreen().catch(err => console.error("Could not exit fullscreen:", err));
         }
-
-        if (window.camVideoFeed) window.camVideoFeed.pause(); 
-        if (window.playPauseBtn) window.playPauseBtn.textContent = "▶"; 
+        
+        if (typeof window.toggleLivePlayback === 'function' && !window.isPlaybackPaused) {
+            window.toggleLivePlayback();
+        }
         
         document.getElementById('pillSlideModeOff')?.classList.remove('active'); 
         document.getElementById('pillSlideModeOn')?.classList.add('active');
@@ -249,9 +250,8 @@ window.toggleSlideMode = function(forceState) {
         sideBackBtn?.classList.add('hidden'); 
         if (dragBox) dragBox.style.display = 'flex';
         
-        if (window.camVideoFeed && window.camVideoFeed.srcObject) {
-            window.camVideoFeed.play();
-            if (window.playPauseBtn) window.playPauseBtn.textContent = "⏸";
+        if (typeof window.toggleLivePlayback === 'function' && window.isPlaybackPaused) {
+            window.toggleLivePlayback();
         }
     }
     window.renderFlatSlideSorterUI(); 
@@ -282,16 +282,64 @@ document.getElementById('btnToggleAnnotationsVectorVisibility')?.addEventListene
 });
 
 
-// --- FULLSCREEN TOGGLE ---
+// --- FULLSCREEN & IDLE AUTO-HIDE TOGGLE ---
+let idleTimer = null;
+const playbackPanel = document.getElementById('studioPlaybackPlayerToolbarUI');
+const appBody = document.querySelector('.app-body');
+
+function resetFullscreenIdleTimer(e) {
+    const isMobile = window.innerWidth <= 950;
+    
+    // Only trigger if in fullscreen OR if on a mobile device
+    if (!appBody.classList.contains('in-fullscreen') && !isMobile) return;
+    
+    // Wake up toolbar
+    playbackPanel.classList.remove('fade-out');
+    clearTimeout(idleTimer);
+    
+    // Hide after 3 seconds
+    idleTimer = setTimeout(() => {
+        playbackPanel.classList.add('fade-out');
+    }, 3000);
+}
+
+// Track mouse and touch to wake up the toolbar
+appBody.addEventListener('mousemove', resetFullscreenIdleTimer);
+appBody.addEventListener('touchstart', resetFullscreenIdleTimer, {passive: true});
+
+// Trigger initial hide on load for mobile
+if (window.innerWidth <= 950) {
+    resetFullscreenIdleTimer();
+}
+
 document.getElementById('btnModernFullscreenToggle')?.addEventListener('click', () => {
-    const workspace = document.querySelector('.app-body');
-    if (!document.fullscreenElement && workspace) { 
-        workspace.requestFullscreen().then(() => { setTimeout(window.syncCanvasDimensionsToWrapper, 100); }); 
-    } else if (document.fullscreenElement) { 
-        document.exitFullscreen(); 
+    if (!document.fullscreenElement && appBody) { 
+        // Fallback for Safari/iOS
+        if (appBody.requestFullscreen) appBody.requestFullscreen().then(() => setTimeout(window.syncCanvasDimensionsToWrapper, 100));
+        else if (appBody.webkitRequestFullscreen) appBody.webkitRequestFullscreen();
+    } else if (document.fullscreenElement || document.webkitFullscreenElement) { 
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
     }
 });
-document.addEventListener('fullscreenchange', () => { setTimeout(window.syncCanvasDimensionsToWrapper, 150); });
+
+function handleFullscreenChange() {
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        appBody.classList.remove('in-fullscreen');
+        // Only permanently show toolbar if on Desktop
+        if (window.innerWidth > 950) {
+            playbackPanel.classList.remove('fade-out');
+            clearTimeout(idleTimer);
+        }
+    } else {
+        appBody.classList.add('in-fullscreen');
+        resetFullscreenIdleTimer();
+    }
+    setTimeout(window.syncCanvasDimensionsToWrapper, 150); 
+}
+
+document.addEventListener('fullscreenchange', handleFullscreenChange);
+document.addEventListener('webkitfullscreenchange', handleFullscreenChange); // Safari support
 
 document.getElementById('btnStepperPrevPage')?.addEventListener('click', () => { 
     if (window.activeSlideIndex > 0 && typeof window.jumpToSlideIndex === 'function') window.jumpToSlideIndex(window.activeSlideIndex - 1); 
@@ -299,30 +347,38 @@ document.getElementById('btnStepperPrevPage')?.addEventListener('click', () => {
 document.getElementById('btnStepperNextPage')?.addEventListener('click', () => { 
     if (window.activeSlideIndex < window.globalSlidesDeck.length - 1 && typeof window.jumpToSlideIndex === 'function') window.jumpToSlideIndex(window.activeSlideIndex + 1); 
 });
-
-
 // --- VOLUME & MUTE CONTROLS ---
 const muteBtn = document.getElementById('btnModernMuteToggle');
 const volSlider = document.getElementById('playerVolumeSlider');
+let lastVolume = 1.0;
 
-if (muteBtn && window.camVideoFeed) {
+if (muteBtn) {
     muteBtn.addEventListener('click', () => {
-        window.camVideoFeed.muted = !window.camVideoFeed.muted;
-        muteBtn.textContent = window.camVideoFeed.muted || window.camVideoFeed.volume === 0 ? "🔇" : (window.camVideoFeed.volume > 0.5 ? "🔊" : "🔉");
-        if(volSlider) volSlider.value = window.camVideoFeed.muted ? 0 : (window.camVideoFeed.volume || 1);
+        if (typeof window.currentVolume !== 'undefined') {
+            if (window.currentVolume > 0) {
+                lastVolume = window.currentVolume;
+                window.setLiveVolume(0);
+                if(volSlider) volSlider.value = 0;
+                muteBtn.textContent = "🔇";
+            } else {
+                window.setLiveVolume(lastVolume || 1.0);
+                if(volSlider) volSlider.value = lastVolume || 1.0;
+                muteBtn.textContent = (lastVolume > 0.5) ? "🔊" : "🔉";
+            }
+        }
     });
 }
 
-if (volSlider && window.camVideoFeed) {
+if (volSlider) {
     volSlider.addEventListener('input', (e) => {
         const vol = parseFloat(e.target.value);
-        window.camVideoFeed.volume = vol;
-        if (vol > 0) {
-            window.camVideoFeed.muted = false;
-            if (muteBtn) muteBtn.textContent = vol > 0.5 ? "🔊" : "🔉";
-        } else {
-            window.camVideoFeed.muted = true;
-            if (muteBtn) muteBtn.textContent = "🔇";
+        if (typeof window.setLiveVolume === 'function') {
+            window.setLiveVolume(vol);
+        }
+        if (muteBtn) {
+            if (vol === 0) muteBtn.textContent = "🔇";
+            else if (vol > 0.5) muteBtn.textContent = "🔊";
+            else muteBtn.textContent = "🔉";
         }
     });
 }
@@ -393,38 +449,31 @@ document.getElementById('btnDownloadPdf')?.addEventListener('click', async funct
 
 // --- RETURN TO HOME HUB & CLEAN UP LIVE STREAMS ---
 function exitPlayerToHomeHub() {
-    // 1. Hide virtual cursor immediately
+    try {
+        if (document.fullscreenElement || document.webkitFullscreenElement) {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        }
+        if (screen.orientation && screen.orientation.unlock) {
+            screen.orientation.unlock();
+        }
+    } catch (err) {
+        console.warn("[-] Failed to unlock screen orientation:", err);
+    }
+
     const cursorEl = document.getElementById('playbackCursor');
     if (cursorEl) cursorEl.style.display = 'none';
 
-    // 2. Wipe old chat history clean so it won't bleed into the next class
     const chatBox = document.getElementById('playerChatMessages');
     if (chatBox) {
         chatBox.innerHTML = '<div class="sys-msg">Welcome to live chat! Be respectful.</div>';
     }
 
-    // 3. EMIT LEAVE-ROOM TO SERVER (Now works because window.liveSocket is defined!)
     if (window.liveSocket && window.ROOM_ID) {
-        console.log(`[*] Emitting leave-room signal for: ${window.ROOM_ID}`);
         window.liveSocket.emit('leave-room', window.ROOM_ID);
     }
     window.ROOM_ID = null;
 
-    // 4. Close WebRTC audio/video peer connection
-    if (window.peerCall) {
-        window.peerCall.close();
-    }
-
-    if (window.camVideoFeed) {
-        window.camVideoFeed.pause();
-        window.camVideoFeed.srcObject = null;
-        window.camVideoFeed.src = "";
-    }
-    
-    if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-    }
-    
     if (window.canvas) {
         window.canvas.clear();
         window.canvas.setBackgroundImage(null, window.canvas.renderAll.bind(window.canvas));
@@ -445,7 +494,6 @@ function exitPlayerToHomeHub() {
     const homeView = document.getElementById('homeViewContainer');
     if (homeView) homeView.classList.remove('hidden');
 
-    // 5. Fetch updated lobby cards immediately
     if (typeof window.fetchActiveClasses === 'function') {
         window.fetchActiveClasses();
     }
@@ -456,25 +504,13 @@ const exitHeaderBtn = document.getElementById('btnBackToHomeMenu');
 if (exitToolbarBtn) exitToolbarBtn.addEventListener('click', exitPlayerToHomeHub);
 if (exitHeaderBtn) exitHeaderBtn.addEventListener('click', exitPlayerToHomeHub);
 
-if (window.playPauseBtn && window.camVideoFeed) {
+
+// --- PLAY / PAUSE SYNC HOOK ---
+if (window.playPauseBtn) {
     window.playPauseBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (window.camVideoFeed.paused) {
-            window.camVideoFeed.play()
-                .then(() => {
-                    window.playPauseBtn.textContent = "⏸";
-                })
-                .catch(err => console.error("Playback resume failed:", err));
-        } else {
-            window.camVideoFeed.pause();
-            window.playPauseBtn.textContent = "▶";
+        if (typeof window.toggleLivePlayback === 'function') {
+            window.toggleLivePlayback();
         }
-    });
-window.camVideoFeed.addEventListener('play', () => {
-        window.playPauseBtn.textContent = "⏸";
-    });
-
-    window.camVideoFeed.addEventListener('pause', () => {
-        window.playPauseBtn.textContent = "▶";
     });
 }

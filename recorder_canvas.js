@@ -111,8 +111,19 @@ canvas.on('object:rotating', logObjectTransform);
 
 window.saveHistoryState = function() {
     if (isHistoryProcessing || isWorkspaceLoading) return;
+    
+    // 1. Identify and temporarily remove pointer strokes
+    const objects = canvas.getObjects();
+    const pointerStrokes = objects.filter(o => o.isPointerStroke);
+    pointerStrokes.forEach(p => canvas.remove(p));
+    
+    // 2. Save only the permanent drawings
     redoStack = [];
     undoStack.push(JSON.stringify(canvas.toJSON(['id', 'slideIndex', 'groupId', 'perPixelTargetFind', 'targetFindTolerance', 'strokeUniform'])));
+    
+    // 3. Add pointer strokes back immediately
+    pointerStrokes.forEach(p => canvas.add(p));
+    
     if (undoStack.length > 30) undoStack.shift(); 
 };
 
@@ -244,12 +255,25 @@ canvas.on('path:created', (opt) => {
     opt.path.id = currentDrawingObjectId || 'path_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
     opt.path.slideIndex = activeSlideIndex; 
     opt.path.set({ perPixelTargetFind: true, targetFindTolerance: 12 });
+    
+    // FIX: Remove the 'animate' block and replace with a 1-second delay
     if (activeTool === 'pointer') {
+        opt.path.isPointerStroke = true; // Tag for saving logic
         opt.path.set({ selectable: false, evented: false }); 
-        opt.path.animate('opacity', 0, { duration: 1000, onChange: canvas.renderAll.bind(canvas), onComplete: () => { canvas.remove(opt.path); canvas.renderAll(); } });
+        
+        const pathToRemove = opt.path;
+        setTimeout(() => {
+            if (canvas.getObjects().includes(pathToRemove)) {
+                canvas.remove(pathToRemove);
+                canvas.renderAll();
+            }
+        }, 1000); // Wait 1 second exactly, then vanish
+        
         return; 
     }
-    saveHistoryState(); saveCurrentSlideState();
+    
+    saveHistoryState(); 
+    saveCurrentSlideState();
 });
 
 function swipeEraseTarget(o) {
@@ -465,11 +489,24 @@ function applySlideBackground(slide) {
 }
 
 window.saveCurrentSlideState = function() {
-    if (isWorkspaceLoading) return; const currentSlide = globalSlidesDeck[activeSlideIndex];
+    if (isWorkspaceLoading) return; 
+    const currentSlide = globalSlidesDeck[activeSlideIndex];
     if (currentSlide) {
-        canvas.renderAll(); currentSlide.annotation = JSON.stringify(canvas.toJSON(['id', 'slideIndex', 'groupId', 'perPixelTargetFind', 'targetFindTolerance', 'strokeUniform']));
+        // 1. Identify and temporarily remove pointer strokes
+        const objects = canvas.getObjects();
+        const pointerStrokes = objects.filter(o => o.isPointerStroke);
+        pointerStrokes.forEach(p => canvas.remove(p));
+        
+        // 2. Save state without the pointer
+        canvas.renderAll(); 
+        currentSlide.annotation = JSON.stringify(canvas.toJSON(['id', 'slideIndex', 'groupId', 'perPixelTargetFind', 'targetFindTolerance', 'strokeUniform']));
         currentSlide.thumbnail = canvas.toDataURL('image/webp', 0.4);
-        const activeThumbImg = document.querySelector('.file-card.active .thumb-box img'); if (activeThumbImg) activeThumbImg.src = currentSlide.thumbnail;
+        
+        // 3. Add pointer strokes back
+        pointerStrokes.forEach(p => canvas.add(p));
+        
+        const activeThumbImg = document.querySelector('.file-card.active .thumb-box img'); 
+        if (activeThumbImg) activeThumbImg.src = currentSlide.thumbnail;
     }
 };
 

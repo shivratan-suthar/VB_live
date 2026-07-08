@@ -254,7 +254,6 @@ header {
     width: 100%; 
     height: 100%; 
     overflow: hidden;
-    /* Enables container queries to track available grid area size */
     container-type: size; 
 }
 
@@ -262,16 +261,9 @@ header {
     box-shadow: 0 10px 40px rgba(0,0,0,0.8); 
     border: 1px solid var(--border-color); 
     background-color: #1c1c1c; 
-    
-    /* Lock the 16:9 ratio */
     aspect-ratio: 16 / 9;
-    
-    /* Dynamically calculate size using Container Query Width (cqw) and Height (cqh) */
-    /* Prevents overflowing by choosing the limiting dimension */
     width: min(100cqw, calc(100cqh * 16 / 9));
     height: min(100cqh, calc(100cqw * 9 / 16));
-    
-    /* Fallback boundaries */
     max-width: 100%;
     max-height: 100%;
 }
@@ -330,14 +322,36 @@ header {
     background: #353535; 
 }
 
-.pager-group { 
-    display: flex; 
-    align-items: center; 
-    gap: 15px; 
-    font-size: 12px; 
-    font-weight: bold; 
-    color: var(--text-main); 
-    padding: 0 15px; 
+.main-toolbar {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.pager-group,
+.actions-group {
+    display: flex;
+    flex-shrink: 0;
+}
+
+/* Hide the empty actions group if buttons are removed */
+.actions-group:empty {
+    display: none;
+}
+
+.tools-group {
+    display: flex;
+    flex-wrap: nowrap;
+    min-width: 0; 
+    overflow-x: auto; 
+    -webkit-overflow-scrolling: touch; 
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.tools-group::-webkit-scrollbar {
+    display: none;
 }
 
 .page-arrow { 
@@ -425,7 +439,7 @@ header {
     border-color: var(--brand-accent); 
 }
 
-/* --- SIDEBAR PANEL (CAMERA & SLIDE LIST) --- */
+/* --- RIGHT SIDEBAR PANEL (CAMERA & CHAT) --- */
 .sidebar {
     width: 265px; 
     background: #181818;
@@ -534,463 +548,12 @@ header {
     letter-spacing: 0.5px; 
 }
 
-.file-manager { 
-    flex: 1; 
-    display: flex; 
-    flex-direction: column; 
-    padding: 15px; 
-    gap: 10px; 
-    overflow: hidden; 
-}
-
-.fm-header { 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    padding-bottom: 5px; 
-    font-size: 11px;
-    font-weight: bold;
-    color: #888;
-}
-
-.file-list {
-    flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
-    display: flex;
-    flex-direction: column;
-    gap: 10px; 
-    padding: 6px;
-    width: 100%;
-    box-sizing: border-box;
-}
-.file-card { 
-    width: 100%; 
-    background: #222; 
-    border: 2px solid transparent; 
-    border-radius: 8px; 
-    display: flex; 
-    flex-direction: column; 
-    cursor: pointer; 
-    overflow: hidden; 
-    position: relative; 
-    flex-shrink: 0; 
-    transition: border-color 0.2s;
-}
-.file-card.active { 
-    border-color: var(--brand-accent); 
-    background: #2a2a2a; 
-}
-
-.file-card .thumb-box { 
-    width: 100%; 
-    aspect-ratio: 16 / 9; 
-    background: #000; 
-    display: flex; 
-    justify-content: center; 
-    align-items: center; 
-    border-bottom: 1px solid #111; 
-}
-.file-card .thumb-box img { 
-    max-width: 100%; 
-    max-height: 100%; 
-    object-fit: contain; 
-}
-
-.file-card .card-info {
-    padding: 5px 8px; 
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: #1a1a1a;
-    font-size: 11px;
-}
-.file-card .slide-num-badge { 
-    background: #333; 
-    color: #fff; 
-    padding: 2px 6px; 
-    border-radius: 4px; 
-    font-weight: bold; 
-    font-size: 10px;
-}
-
-.file-card .del-hook { 
-    position: absolute; 
-    top: 6px; 
-    right: 6px; 
-    color: #fff; 
-    background: rgba(0,0,0,0.8); 
-    border: 1px solid #444; 
-    cursor: pointer; 
-    font-size: 11px; 
-    width: 22px; 
-    height: 22px; 
-    border-radius: 50%; 
-    display: flex; 
-    align-items: center; 
-    justify-content: center; 
-    z-index: 10; 
-    transition: background 0.15s;
-}
-.file-card .del-hook:hover { 
-    background: var(--live-red); 
-}
-
-/* --- FORCE LANDSCAPE ORIENTATION OVERLAY (MOBILE ONLY) --- */
-.orientation-warning {
-    display: none; 
-    position: fixed; 
-    top: 0; 
-    left: 0; 
-    width: 100vw; 
-    height: 100vh;
-    background-color: var(--bg-main); 
-    color: var(--text-main); 
-    z-index: 99999;
-    flex-direction: column; 
-    justify-content: center; 
-    align-items: center; 
-    text-align: center; 
-    padding: 30px; 
-    box-sizing: border-box;
-}
-.orientation-warning .rotate-icon { 
-    font-size: 60px; 
-    margin-bottom: 20px; 
-    animation: rotatePhoneAnim 2s infinite ease-in-out; 
-}
-
-@keyframes rotatePhoneAnim { 
-    0% { transform: rotate(0deg); } 
-    50% { transform: rotate(-90deg); } 
-    100% { transform: rotate(0deg); } 
-}
-
-.orientation-warning h2 { 
-    font-size: 22px; 
-    color: var(--brand-accent); 
-    margin: 0 0 10px 0; 
-    letter-spacing: 1px; 
-}
-.orientation-warning p { 
-    font-size: 14px; 
-    color: var(--text-muted); 
-    line-height: 1.5; 
-    max-width: 300px; 
-}
-
-/* --- HOTKEYS HUD POPUP OVERLAY --- */
-#shortcutHudOverlay {
-    position: absolute; 
-    top: 0; 
-    left: 0; 
-    width: 100vw; 
-    height: 100vh; 
-    background: rgba(0,0,0,0.85); 
-    backdrop-filter: blur(4px); 
-    z-index: 9999; 
-    display: none; 
-    justify-content: center; 
-    align-items: center; 
-    pointer-events: none;
-}
-.shortcut-hud-box {
-    background: #1e1e1e; 
-    border: 2px solid #444; 
-    border-radius: 12px; 
-    padding: 30px; 
-    width: 500px; 
-    box-shadow: 0 20px 50px rgba(0,0,0,0.9); 
-    font-family: 'Segoe UI', sans-serif;
-}
-.shortcut-hud-box h3 { 
-    margin-top: 0; 
-    color: var(--brand-accent); 
-    font-size: 18px; 
-    border-bottom: 1px solid #333; 
-    padding-bottom: 10px; 
-    letter-spacing: 0.5px; 
-}
-.shortcut-grid { 
-    display: grid; 
-    grid-template-columns: 1fr 1fr; 
-    gap: 15px; 
-    font-size: 13px; 
-    color: #fff; 
-}
-.shortcut-grid kbd { 
-    background: #444; 
-    padding: 3px 6px; 
-    border-radius: 4px; 
-    box-shadow: 0 2px 0 #222; 
-}
-.shortcut-footer { 
-    margin-top: 20px; 
-    font-size: 11px; 
-    color: var(--text-muted); 
-    text-align: center; 
-    border-top: 1px solid #333; 
-    padding-top: 10px; 
-}
-.shortcut-footer span { 
-    color: #fff; 
-    font-weight: bold; 
-}
-
-/* ==========================================================================
-   DYNAMIC MOBILE & TABLET RESPONSIVE OVERRIDES
-   ========================================================================== */
-@media (max-width: 1024px) {
-    header { height: 44px; padding: 0 8px; }
-    #classroomStateHeadingTitle { display: none !important; } 
-    .header-left { gap: 4px; font-size: 11px; }
-    .header-right { gap: 4px; font-size: 11px; }
-    .live-badge { font-size: 9px; padding: 4px; }
-    .hdr-btn { padding: 4px 6px; font-size: 9px; white-space: nowrap; }
-    .timer-display { font-size: 11px; margin: 0 2px; }
-
-    .app-body { height: calc(100vh - 44px); }
-
-    .central-workspace {
-        grid-template-columns: 44px 1fr; 
-        grid-template-rows: 1fr 52px; 
-        padding: 4px;
-    }
-    .floating-palette { width: 30px; gap: 6px; }
-    .palette-group { padding: 4px 2px; gap: 6px; }
-    .color-dot { width: 14px; height: 14px; }
-    .thickness-btn { width: 18px; height: 18px; }
-
-    .bottom-toolbar { height: 46px; }
-    .tb-btn { min-width: 32px; padding: 4px 6px; font-size: 13px; }
-    .tb-btn span { display: none !important; } 
-    .pager-group { gap: 4px; padding: 0 2px; font-size: 10px; }
-    .page-arrow { padding: 2px 4px; }
-    
-    .shapes-popup { bottom: 52px; left: 10px; width: 160px; }
-    .more-popup { bottom: 52px; right: 10px; width: 200px; }
-}
-
-@media (max-width: 1024px) and (orientation: landscape) {
-    .app-body { flex-direction: row !important; } 
-    .sidebar {
-        position: relative !important; 
-        width: 210px !important; 
-        height: 100% !important;
-        border-left: 1px solid var(--border-color); 
-        border-bottom: none !important; 
-        flex-direction: column !important;
-    }
-    .cam-box { 
-        width: 100% !important; 
-        height: 110px !important; 
-        border-right: none !important; 
-        border-bottom: 1px solid var(--border-color) !important;
-    }
-    .file-manager { padding: 6px !important; }
-    .file-list { 
-        flex-direction: column !important; 
-        overflow-y: auto !important; 
-        overflow-x: hidden !important; 
-        height: 100%; 
-        gap: 8px;
-    }
-    .file-card { width: 100% !important; height: auto !important; }
-}
-
-@media (max-width: 1024px) and (orientation: portrait) {
-    .app-body { flex-direction: column !important; } 
-    .sidebar {
-        position: relative !important; 
-        width: 100% !important; 
-        height: 120px !important; 
-        flex-direction: row !important; 
-        border-left: none !important; 
-        border-bottom: 1px solid var(--border-color);
-    }
-    .cam-box { 
-        width: 130px !important; 
-        height: 100% !important; 
-        border-bottom: none !important; 
-        border-right: 1px solid var(--border-color) !important;
-    }
-    .file-manager { padding: 4px !important; }
-    .file-list { 
-        flex-direction: row !important; 
-        overflow-x: auto !important; 
-        overflow-y: hidden !important; 
-        height: 100%; 
-        align-items: center; 
-        gap: 8px;
-    }
-    .file-card { width: 110px !important; height: 90% !important; }
-    .file-card .thumb-box { height: 55px !important; }
-
-    .central-workspace {
-        grid-template-columns: 1fr; 
-        grid-template-rows: 36px 1fr 52px; 
-        grid-template-areas: 
-            "palette" 
-            "canvas" 
-            "toolbar";
-    }
-    .floating-palette { 
-        flex-direction: row; 
-        width: 100%; 
-        height: 100%; 
-        justify-content: space-between; 
-        padding: 0 4px; 
-    }
-    .palette-group { 
-        flex-direction: row; 
-        width: auto; 
-        height: 24px; 
-        padding: 2px 8px; 
-        border-radius: 12px; 
-        gap: 8px; 
-    }
-}
-
-@media (max-width: 860px) and (orientation: portrait) {
-    .orientation-warning:not(.hidden) { 
-        display: flex !important; 
-    }
-}
-
-/* --- LIVE CLASS SETUP MODAL OVERLAY --- */
-#liveSetupModal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(6px);
-    z-index: 999999;
-    display: none;
-    justify-content: center;
-    align-items: center;
-}
-
-.live-modal-box {
-    background: #1e1e1e;
-    border: 1px solid #333;
-    border-radius: 12px;
-    padding: 24px;
-    width: 400px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.live-modal-box h3 {
-    margin: 0;
-    color: var(--brand-accent);
-    font-size: 18px;
-}
-
-.live-modal-box p {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 13px;
-    line-height: 1.4;
-}
-
-.live-modal-input {
-    background: #111;
-    border: 1px solid #444;
-    border-radius: 6px;
-    padding: 10px 12px;
-    color: white;
-    font-size: 14px;
-    outline: none;
-    transition: border-color 0.2s;
-}
-
-.live-modal-input:focus {
-    border-color: var(--brand-accent);
-}
-
-.live-modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 8px;
-}
-
-.modal-btn {
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    border: none;
-    transition: 0.15s;
-}
-
-.modal-btn.cancel {
-    background: #333;
-    color: #ccc;
-}
-
-.modal-btn.cancel:hover {
-    background: #444;
-    color: white;
-}
-
-.modal-btn.confirm {
-    background: var(--brand-accent);
-    color: white;
-}
-
-.modal-btn.confirm:hover {
-    opacity: 0.9;
-}
-/* --- LIVE ATTENDANCE WATCHER BADGE --- */
-.attendance-badge {
-    background: #242424;
-    border: 1px solid #3a3a3a;
-    color: #dedede;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 4px;
-    letter-spacing: 0.5px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-}
-
-.attendance-badge.has-viewers {
-    background: #1a2f1c;
-    border-color: #2e6f36;
-    color: #5cf272;
-}
-
-/* --- LEFT SIDEBAR (SLIDE SORTER COLUMN) --- */
-.left-sidebar {
-    width: 185px; 
-    background: #181818;
-    border-right: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    z-index: 80;
-    flex-shrink: 0;
-    box-sizing: border-box;
-    overflow-x: hidden; 
-}
-
-/* --- RIGHT SIDEBAR CHATBOX CONTAINER --- */
 .chat-manager {
     flex: 1;
     display: flex;
     flex-direction: column;
     background: #141414;
     overflow: hidden;
-    border-top: 1px solid var(--border-color);
     min-height: 200px;
 }
 
@@ -1099,79 +662,529 @@ header {
     opacity: 0.85;
 }
 
-.main-wrapper {
-  /* This ensures the container perfectly fits the visible screen */
-  height: 100dvh; 
-  width: 100%;
-  
-  /* Use flexbox to organize your header, practice area, and footer */
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; 
-}
-
-.quick-tool-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px; /* Space between tools */
-  
-  /* 1. Enable horizontal scrolling */
-  overflow-x: auto; 
-  
-  /* 2. Prevent flex items from wrapping to a new line */
-  flex-wrap: nowrap; 
-  
-  /* 3. Smooth scrolling on touch devices (iOS) */
-  -webkit-overflow-scrolling: touch; 
-  
-  /* Optional: add some padding so items don't touch the very edge */
-  padding: 5px; 
-}
-.tool-button {
-  /* Prevent the buttons from shrinking when the screen is narrow */
-  flex: 0 0 auto; 
-}
-
-/* Hide scrollbar for Chrome, Safari and Opera */
-.quick-tool-bar::-webkit-scrollbar {
-  display: none;
-}
-
-/* Hide scrollbar for IE, Edge and Firefox */
-.quick-tool-bar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
-}
-.main-toolbar {
+/* --- LEFT SIDEBAR (SLIDE SORTER COLUMN) --- */
+.left-sidebar {
+    width: 185px; 
+    background: #181818;
+    border-right: 1px solid var(--border-color);
     display: flex;
+    flex-direction: column;
+    z-index: 80;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    overflow-x: hidden; 
+}
+
+.file-manager { 
+    flex: 1; 
+    display: flex; 
+    flex-direction: column; 
+    padding: 15px; 
+    gap: 10px; 
+    overflow: hidden; 
+}
+
+.fm-header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    padding-bottom: 5px; 
+    font-size: 11px;
+    font-weight: bold;
+    color: #888;
+}
+
+.file-list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 10px; 
+    padding: 6px;
     width: 100%;
+    box-sizing: border-box;
+}
+
+.file-card { 
+    width: 100%; 
+    background: #222; 
+    border: 2px solid transparent; 
+    border-radius: 8px; 
+    display: flex; 
+    flex-direction: column; 
+    cursor: pointer; 
+    overflow: hidden; 
+    position: relative; 
+    flex-shrink: 0; 
+    transition: border-color 0.2s;
+}
+.file-card.active { 
+    border-color: var(--brand-accent); 
+    background: #2a2a2a; 
+}
+
+.file-card .thumb-box { 
+    width: 100%; 
+    aspect-ratio: 16 / 9; 
+    background: #000; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    border-bottom: 1px solid #111; 
+}
+.file-card .thumb-box img { 
+    max-width: 100%; 
+    max-height: 100%; 
+    object-fit: contain; 
+}
+
+.file-card .card-info {
+    padding: 5px 8px; 
+    display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px; /* Space between the groups */
+    gap: 8px;
+    background: #1a1a1a;
+    font-size: 11px;
+}
+.file-card .slide-num-badge { 
+    background: #333; 
+    color: #fff; 
+    padding: 2px 6px; 
+    border-radius: 4px; 
+    font-weight: bold; 
+    font-size: 10px;
 }
 
-.pager-group,
-.actions-group {
-    display: flex;
-    flex-shrink: 0; /* Forces them to stay their full natural width */
+.file-card .del-hook { 
+    position: absolute; 
+    top: 6px; 
+    right: 6px; 
+    color: #fff; 
+    background: rgba(0,0,0,0.8); 
+    border: 1px solid #444; 
+    cursor: pointer; 
+    font-size: 11px; 
+    width: 22px; 
+    height: 22px; 
+    border-radius: 50%; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    z-index: 10; 
+    transition: background 0.15s;
+}
+.file-card .del-hook:hover { 
+    background: var(--live-red); 
 }
 
-.tools-group {
+/* --- SLIDE SORTER BOTTOM PAGER --- */
+.slide-sorter-footer {
     display: flex;
-    flex-wrap: nowrap; /* Forces buttons to stay in one line */
-    
-    /* The Magic Trick: Allows the container to shrink smaller than its buttons */
-    min-width: 0; 
-    
-    /* Enables horizontal scrolling */
-    overflow-x: auto; 
-    -webkit-overflow-scrolling: touch; /* Smooth scrolling on mobile */
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    padding: 10px 0 0 0;
+    margin-top: auto; 
+    border-top: 1px solid var(--border-color);
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--text-main);
+    flex-shrink: 0;
 }
-.tools-group::-webkit-scrollbar {
+
+/* --- LIVE CLASS SETUP MODAL OVERLAY --- */
+#liveSetupModal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(6px);
+    z-index: 999999;
     display: none;
-}
-.tools-group {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    justify-content: center;
+    align-items: center;
 }
 
+.live-modal-box {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 12px;
+    padding: 24px;
+    width: 400px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.live-modal-box h3 {
+    margin: 0;
+    color: var(--brand-accent);
+    font-size: 18px;
+}
+
+.live-modal-box p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.live-modal-input {
+    background: #111;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: white;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.live-modal-input:focus {
+    border-color: var(--brand-accent);
+}
+
+.live-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.modal-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: 0.15s;
+}
+
+.modal-btn.cancel {
+    background: #333;
+    color: #ccc;
+}
+
+.modal-btn.cancel:hover {
+    background: #444;
+    color: white;
+}
+
+.modal-btn.confirm {
+    background: var(--brand-accent);
+    color: white;
+}
+
+.modal-btn.confirm:hover {
+    opacity: 0.9;
+}
+
+/* --- LIVE ATTENDANCE WATCHER BADGE --- */
+.attendance-badge {
+    background: #242424;
+    border: 1px solid #3a3a3a;
+    color: #dedede;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+
+.attendance-badge.has-viewers {
+    background: #1a2f1c;
+    border-color: #2e6f36;
+    color: #5cf272;
+}
+
+/* --- HOTKEYS HUD POPUP OVERLAY --- */
+#shortcutHudOverlay {
+    position: absolute; 
+    top: 0; 
+    left: 0; 
+    width: 100vw; 
+    height: 100vh; 
+    background: rgba(0,0,0,0.85); 
+    backdrop-filter: blur(4px); 
+    z-index: 9999; 
+    display: none; 
+    justify-content: center; 
+    align-items: center; 
+    pointer-events: none;
+}
+.shortcut-hud-box {
+    background: #1e1e1e; 
+    border: 2px solid #444; 
+    border-radius: 12px; 
+    padding: 30px; 
+    width: 500px; 
+    box-shadow: 0 20px 50px rgba(0,0,0,0.9); 
+}
+.shortcut-hud-box h3 { 
+    margin-top: 0; 
+    color: var(--brand-accent); 
+    font-size: 18px; 
+    border-bottom: 1px solid #333; 
+    padding-bottom: 10px; 
+    letter-spacing: 0.5px; 
+}
+.shortcut-grid { 
+    display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 15px; 
+    font-size: 13px; 
+    color: #fff; 
+}
+.shortcut-grid kbd { 
+    background: #444; 
+    padding: 3px 6px; 
+    border-radius: 4px; 
+    box-shadow: 0 2px 0 #222; 
+}
+.shortcut-footer { 
+    margin-top: 20px; 
+    font-size: 11px; 
+    color: var(--text-muted); 
+    text-align: center; 
+    border-top: 1px solid #333; 
+    padding-top: 10px; 
+}
+.shortcut-footer span { 
+    color: #fff; 
+    font-weight: bold; 
+}
+
+/* ==========================================================================
+   DYNAMIC MOBILE & TABLET RESPONSIVE OVERRIDES
+   ========================================================================== */
+
+/* Tablet & Smaller Laptops */
+@media (max-width: 1024px) {
+    header { height: 44px; padding: 0 8px; }
+    #classroomStateHeadingTitle { display: none !important; } 
+    .header-left { gap: 4px; font-size: 11px; }
+    .header-right { gap: 4px; font-size: 11px; }
+    .live-badge { font-size: 9px; padding: 4px; }
+    .hdr-btn { padding: 4px 6px; font-size: 9px; white-space: nowrap; }
+    .timer-display { font-size: 11px; margin: 0 2px; }
+
+    .bottom-toolbar { height: auto; min-height: 46px; }
+    .tb-btn { min-width: 32px; padding: 4px 6px; font-size: 13px; }
+    .tb-btn span { display: none !important; } 
+    .pager-group { gap: 4px; padding: 0 2px; font-size: 10px; }
+    .page-arrow { padding: 2px 4px; }
+}
+
+/* Mobile Phones (Portrait & Landscape Stacking) */
+/* Mobile Phones (Portrait & Landscape Stacking) */
+@media (max-width: 768px) {
+    /* Release the 100vh lock so the user can scroll down */
+    .app-body { 
+        display: flex !important;
+        flex-direction: column !important; 
+        height: auto !important;
+        min-height: calc(100vh - 44px);
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+    }
+
+    /* 1. Central Workspace (Board) - order 1 */
+    .central-workspace {
+        order: 1 !important; 
+        width: 100% !important;
+        min-height: 350px !important; 
+        grid-template-columns: 1fr; 
+        grid-template-rows: auto 1fr auto; 
+        grid-template-areas: 
+            "palette" 
+            "canvas" 
+            "toolbar";
+        padding: 4px !important; 
+        row-gap: 4px !important; 
+    }
+
+    .floating-palette { 
+        flex-direction: row; 
+        width: 100%; 
+        height: auto; 
+        justify-content: center; 
+        padding: 0 !important; 
+        gap: 6px;
+    }
+    .palette-group { 
+        flex-direction: row; 
+        width: auto; 
+        padding: 2px 10px; 
+    }
+
+    /* 2. Sidebar (Cam + Tabs + Chat/Call Content) - order 2 */
+    .sidebar {
+        order: 2 !important; 
+        width: 100% !important; 
+        height: 220px !important; 
+        display: grid !important;
+        grid-template-columns: 160px 1fr !important; /* Left col: 160px (Cam/Tabs), Right col: 1fr (Content) */
+        grid-template-rows: 120px 100px !important;  /* Top row: 120px (cam), Bottom row: 100px (tabs) */
+        border-left: none !important; 
+        border-top: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+    .cam-box { 
+        grid-column: 1;
+        grid-row: 1;
+        width: 100% !important; 
+        height: 100% !important; 
+        aspect-ratio: 4 / 3 !important; 
+        border-right: 1px solid var(--border-color) !important; 
+        border-bottom: 1px solid var(--border-color) !important; 
+        flex-shrink: 0;
+        align-self: flex-start; 
+    }
+    .cam-box video {
+        object-fit: cover !important; 
+    }
+    
+    /* Layout Logic for Chat Manager tabs inside the sidebar grid */
+    .chat-manager { 
+        display: contents !important; /* Passes tabs and wrapper to parent grid */
+    }
+    
+    .chat-tabs-header {
+        grid-column: 1;
+        grid-row: 2;
+        flex-direction: row !important; 
+        width: 100% !important;
+        height: 100% !important;
+        border-bottom: none !important;
+        border-right: 1px solid #222 !important;
+        background: #141414 !important; 
+    }
+    .chat-tab {
+        flex: 1 !important;
+        padding: 0 !important;
+        border-bottom: 2px solid transparent !important;
+        border-left: none !important;
+    }
+    .chat-tab.active-tab {
+        border-bottom-color: var(--brand-accent) !important;
+        background: #1e1e1e !important; 
+    }
+    .tab-text {
+        display: none !important; 
+    }
+    .tab-icon {
+        font-size: 20px !important; 
+    }
+    .call-badge {
+        top: 25px; right: 15px; padding: 2px 4px; font-size: 9px;
+    }
+    
+    .chat-views-wrapper {
+        grid-column: 2;
+        grid-row: 1 / span 2; 
+        width: 100% !important;
+        height: 100% !important;
+        background: #141414 !important;
+    }
+
+/* Ensure the input area stays at the bottom and doesn't get pushed off */
+    .chat-input-area {
+        display: flex !important;
+        flex-shrink: 0 !important; /* Forces the area to stay visible */
+        padding: 6px !important;
+        gap: 8px !important;
+        background: #181818 !important;
+        border-top: 1px solid #222 !important;
+    }
+
+    .chat-input-area input {
+        flex: 1 !important; /* Allows input to expand */
+        min-width: 0 !important; /* Allows input to shrink without breaking the layout */
+        padding: 6px 8px !important;
+    }
+
+    /* Force the Send button to remain visible */
+    .chat-input-area button {
+        flex-shrink: 0 !important; /* Prevents button from ever shrinking */
+        width: auto !important;
+        padding: 6px 12px !important;
+        font-size: 12px !important;
+    }
+
+    /* 3. Slide Sorter - order 3 */
+    .left-sidebar {
+        order: 3 !important; 
+        width: 100% !important; 
+        height: auto !important;
+        border-right: none !important; 
+        border-top: 1px solid var(--border-color) !important;
+        border-bottom: none !important;
+        flex-shrink: 0;
+    }
+    .file-manager { padding: 8px !important; }
+    .file-list { 
+        flex-direction: row !important; 
+        overflow-x: auto !important; 
+        overflow-y: hidden !important; 
+        height: auto !important; 
+        padding-bottom: 5px;
+    }
+    .file-card { 
+        width: 120px !important; 
+        height: auto !important; 
+        flex-shrink: 0; 
+    }
+    
+    .slide-sorter-footer {
+        width: max-content !important; 
+        margin: 5px auto 0 auto !important; 
+        padding: 5px 15px !important;
+    }
+
+    /* Toolbars & Popups */
+    .shapes-popup { bottom: 50px; left: 5vw; width: 90vw; grid-template-columns: 1fr 1fr 1fr; }
+    .more-popup { bottom: 50px; right: 5vw; width: 90vw; left: 5vw; }
+
+    .main-toolbar {
+        overflow-x: auto;
+        padding-bottom: 2px !important; 
+        -webkit-overflow-scrolling: touch;
+    }
+}
+/* Small adjustments for very small screens (iPhone SE, etc.) */
+@media (max-width: 400px) {
+    .shapes-popup { grid-template-columns: 1fr 1fr; }
+    .live-modal-box { width: 90%; padding: 16px; }
+}
+
+
+
+/* --- TABBED CHAT & CALL INTERFACE --- */
+.chat-tabs-header {
+    display: flex; border-bottom: 1px solid #222; background: #181818; flex-shrink: 0;
+}
+.chat-tab {
+    flex: 1; text-align: center; padding: 12px 10px; font-size: 12px; font-weight: bold; 
+    color: #888; cursor: pointer; transition: 0.2s; border-bottom: 2px solid transparent;
+    position: relative; display: flex; justify-content: center; align-items: center; gap: 6px;
+}
+.chat-tab.active-tab {
+    color: #fff; border-bottom-color: var(--brand-accent);
+}
+.call-badge {
+    position: absolute; top: 6px; right: 10%; background: #e02020; color: #fff; 
+    font-size: 9px; padding: 2px 5px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+.chat-views-wrapper {
+    display: flex; flex-direction: column; flex: 1; overflow: hidden;
+}

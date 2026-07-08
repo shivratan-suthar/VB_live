@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Shiv's Board - Educator Studio & Live Room</title>
     
     <!-- Core Application Libraries -->
@@ -19,7 +19,6 @@
 </head>
 <body>
 
-   
     <!-- Live Class Setup Modal -->
     <div id="liveSetupModal">
         <div class="live-modal-box">
@@ -29,6 +28,18 @@
             <div class="live-modal-actions">
                 <button class="modal-btn cancel" id="btnCancelLiveModal">Cancel</button>
                 <button class="modal-btn confirm" id="btnConfirmLiveStart">Start Broadcasting</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- End Class Confirmation Modal -->
+    <div id="endClassConfirmModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(6px); z-index: 999999; justify-content: center; align-items: center;">
+        <div class="live-modal-box">
+            <h3>⚠️ End Live Class?</h3>
+            <p>Are you sure you want to stop broadcasting? This will disconnect all learners and reset the board.</p>
+            <div class="live-modal-actions">
+                <button class="modal-btn cancel" id="btnCancelEndClass">Cancel</button>
+                <button class="modal-btn confirm" id="btnConfirmEndClass" style="background: var(--live-red);">Stop Recording</button>
             </div>
         </div>
     </div>
@@ -45,9 +56,9 @@
         <span id="classroomStateHeadingTitle">Educator's Board</span>
 
         <div class="header-right">
+            <span class="timer-display hidden" id="pingDisplay" style="font-weight: bold; margin-right: 10px; transition: color 0.3s;">📶 0ms</span>
             <span class="timer-display" id="topTimer">00:00:00</span>
             <a href="player.html" target="_blank" class="hdr-btn" style="border-color: var(--play-blue);">▶ OPEN Learner's Board</a>
-            <button class="hdr-btn end-class-btn" id="btnEndClass">⏹️ END CAPTURE</button>
         </div>
     </header>
 
@@ -57,12 +68,24 @@
             <div class="file-manager">
                 <div class="fm-header">
                     <span>SLIDE DECK SORTER</span>
-                    <label class="upload-btn-custom" style="cursor: pointer; font-size: 11px; background: #333; padding: 4px 8px; border-radius: 4px; color: white;">
-                        ➕ Upload
-                        <input type="file" id="sideFileLoader" accept="image/*, application/pdf" multiple style="display:none;">
-                    </label>
+                    <div style="display: flex; gap: 5px;">
+                        <button id="btnAddPage" style="cursor: pointer; font-size: 11px; background: #333; padding: 4px 8px; border-radius: 4px; color: white; border: none; font-family: inherit;">
+                            ➕ Blank
+                        </button>
+                        <label class="upload-btn-custom" style="cursor: pointer; font-size: 11px; background: #333; padding: 4px 8px; border-radius: 4px; color: white;">
+                            ➕ Upload
+                            <input type="file" id="sideFileLoader" accept="image/*, application/pdf" multiple style="display:none;">
+                        </label>
+                    </div>
                 </div>
                 <div class="file-list" id="fileRegistryContainer"></div>
+                
+                <!-- Moved Pager / Indicator to the bottom of the Slide Preview Bar -->
+                <div class="slide-sorter-footer">
+                    <div class="page-arrow" id="btnPrevPage">❮</div>
+                    <span id="pageIndicator">1 / 1</span>
+                    <div class="page-arrow" id="btnNextPage">❯</div>
+                </div>
             </div>
         </div>
 
@@ -120,34 +143,26 @@
 
             <div class="bottom-toolbar" id="studioCreationToolbarUI">
                 <div class="main-toolbar">
-    <div class="tb-group tools-group">
-        <button class="tb-btn" id="btnQuickSelect">🖱️<span>Select</span></button>
-        <button class="tb-btn active" data-tool="pen">✏️<span>Pen</span></button>
-        <button class="tb-btn" data-tool="highlight">🖍️<span>Highlight</span></button>
-        <button class="tb-btn" data-tool="eraser">🧽<span>Eraser</span></button>
-        <button class="tb-btn" data-tool="text">🅰️<span>Text</span></button>
-        <button class="tb-btn" id="btnQuickLine">📏<span>Line</span></button>
-        <button class="tb-btn" data-tool="pointer">🎯<span>Laser</span></button>
-        <button class="tb-btn" id="btnInsertImage">🖼️<span>Image</span></button>
-        <button class="tb-btn" id="btnShapesTrigger">🔲<span>Objects</span></button>
-    </div>
+                    <div class="tb-group tools-group">
+                        <button class="tb-btn" id="btnQuickSelect">🖱️<span>Select</span></button>
+                        <button class="tb-btn active" data-tool="pen">✏️<span>Pen</span></button>
+                        <button class="tb-btn" data-tool="highlight">🖍️<span>Highlight</span></button>
+                        <button class="tb-btn" data-tool="eraser">🧽<span>Eraser</span></button>
+                        <button class="tb-btn" data-tool="text">🅰️<span>Text</span></button>
+                        <button class="tb-btn" id="btnQuickLine">📏<span>Line</span></button>
+                        <button class="tb-btn" data-tool="pointer">🎯<span>Laser</span></button>
+                        <button class="tb-btn" id="btnInsertImage">🖼️<span>Image</span></button>
+                        <button class="tb-btn" id="btnShapesTrigger">🔲<span>Objects</span></button>
+                    </div>
 
-    <div class="tb-group pager-group">
-        <div class="page-arrow" id="btnPrevPage">❮</div>
-        <span id="pageIndicator">1 / 1</span>
-        <div class="page-arrow" id="btnNextPage">❯</div>
-    </div>
-
-    <div class="tb-group actions-group">
-        <button class="tb-btn" id="btnAddPage">➕<span>Add Slide</span></button>
-        <button class="tb-btn" id="btnMoreTrigger">⫶⫶<span>More Options</span></button>
-    </div>
-</div>
+                    <div class="tb-group actions-group">
+                        <button class="tb-btn" id="btnMoreTrigger">⫶⫶<span>More Options</span></button>
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- 3. RIGHT COLUMN: Webcam & Live Chatbox -->
-        <!-- RIGHT COLUMN: Webcam & Live Chatbox -->
         <div class="sidebar">
             <div class="cam-box">
                 <div id="camPlaceholderText" class="cam-placeholder">📷 Camera & Mic Standby<br><span>Click 'Toggle Cam' to allow access</span></div>
@@ -157,19 +172,49 @@
                 <div class="cam-overlay-toggle" id="btnToggleCam">📷 Toggle Cam</div>
             </div>
             
-            <!-- NEW: Real-Time Classroom Chat Box -->
+      <!-- NEW: Tabbed Chat & Call Manager -->
             <div class="chat-manager">
-                <div class="chat-header">💬 LIVE CLASSROOM CHAT</div>
-                <div class="chat-messages" id="liveChatMessages">
-                    <div class="sys-msg">Room broadcast ready. Messages will appear here.</div>
+                <!-- TABS HEADER -->
+                <div class="chat-tabs-header">
+                    <div id="tabChat" class="chat-tab active-tab" title="Chat">
+                        <span class="tab-icon">💬</span>
+                        <span class="tab-text">Chat</span>
+                    </div>
+                    <div id="tabCalls" class="chat-tab" title="Calls">
+                        <span class="tab-icon">📞</span>
+                        <span class="tab-text">Calls</span>
+                        <span id="callBadge" class="call-badge hidden">New</span>
+                    </div>
                 </div>
-                <div class="chat-input-area">
-                    <input type="text" id="liveChatInput" placeholder="Message your learners..." maxlength="150">
-                    <button id="btnSendChat">Send</button>
+
+                <!-- VIEWS WRAPPER -->
+                <div class="chat-views-wrapper">
+                    <!-- CHAT VIEW CONTAINER -->
+                    <div id="chatViewContainer" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
+                        <div class="chat-messages" id="liveChatMessages">
+                            <div class="sys-msg">Room broadcast ready. Messages will appear here.</div>
+                        </div>
+                        <div class="chat-input-area">
+                            <input type="text" id="liveChatInput" placeholder="Message your learners..." maxlength="150">
+                            <button id="btnSendChat">Send</button>
+                        </div>
+                    </div>
+
+                    <!-- CALL VIEW CONTAINER (Hidden by default) -->
+                  <!-- CALL VIEW CONTAINER (Updated for Scrolling) -->
+                <div id="callViewContainer" style="display:none; flex-direction:column; flex:1; overflow-y:auto; background:#141414;">
+                    <div style="padding:8px 12px; font-size:10px; font-weight:bold; color:#888; background:#1a1a1a; border-bottom:1px solid #222; text-transform:uppercase; letter-spacing:0.5px;">Active Videos</div>
+                    
+                    <!-- Removed max-height so this can grow naturally -->
+                    <div id="activeLearnerCalls" style="display:flex; flex-wrap:wrap; overflow-y:hidden; gap:6px; background:#0a0a0a; padding:10px; min-height:85px;"></div>
+                    
+                    <div style="padding:8px 12px; font-size:10px; font-weight:bold; color:#888; background:#1a1a1a; border-bottom:1px solid #222; border-top:1px solid #222; text-transform:uppercase; letter-spacing:0.5px;">Incoming Requests</div>
+                    <div id="incomingCallRequests" style="flex:1; padding:10px; display:flex; flex-direction:column; gap:8px;">
+                        <div class="sys-msg" id="noCallsMsg" style="text-align:center; color:#666; font-size:11px; margin-top:20px; font-style:italic;">No pending requests.</div>
+                    </div>
+                </div>
                 </div>
             </div>
-        </div>
-    </div>
 
     <div id="shortcutHudOverlay">
         <div class="shortcut-hud-box">
