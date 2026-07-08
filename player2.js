@@ -1,77 +1,26 @@
 /**
  * PLAYER2.JS — Real-Time Live Receiver & Lobby Discovery Engine
- * Features: Socket.IO & PeerJS WebRTC receiver, synchronized TURN/TURNS fireproof architecture,
- * dynamic whiteboard sync, strict lobby room guards, network reconnection resilience, 
- * player ICE watchdog timers, canvas resync, instant lobby execution, auto-polling, and live chat.
+ * WebSocket Streaming Architecture (Replaces WebRTC)
  */
 
 // --- 1. CONFIGURATION & NETWORK SETUP ---
-window.ROOM_ID = null; // Dynamically set when choosing a stream card
+window.ROOM_ID = null; 
 const LEARNER_PEER_ID = 'learner-' + Math.floor(Math.random() * 100000);
 const SERVER_URL = 'https://api.sutharx.in';
 
-let pendingStreamRequestRoomId = null;
-let connectionWatchdogTimer = null; // Catch silent connection handoff blocks
-let lobbyPollingInterval = null;    // Auto-refresh lobby grid
+let lobbyPollingInterval = null;
+let hostEvictionTimeout = null;
 
-// Attach directly to window.liveSocket first
+// WebSocket Media Variables
+let playerAudioCtx = null;
+let nextAudioPlayTime = 0;
+let webcamImgFeed = null;
+
+// Attach directly to window.liveSocket
 window.liveSocket = io(SERVER_URL, {
     extraHeaders: { "ngrok-skip-browser-warning": "true" }
 });
 const liveSocket = window.liveSocket;
-
-// GLOBALLY ALIGNED FIREPROOF ICE CONFIGURATION (Matches Recorder Engine)
-const peer = new Peer(LEARNER_PEER_ID, {
-    config: {
-        iceServers: [
-            // Standard Global STUN Servers
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun.cloudflare.com:3478' },
-            
-            // Standard TURN (UDP/TCP fallback)
-            { 
-                urls: 'turn:a.relay.metered.ca:80', 
-                username: '2f2a84ff07ed9b7fb5e9cc21', 
-                credential: 'Uvfc7zqabCwxCkt4' 
-            },
-            { 
-                urls: 'turn:a.relay.metered.ca:443?transport=tcp', 
-                username: '2f2a84ff07ed9b7fb5e9cc21', 
-                credential: 'Uvfc7zqabCwxCkt4' 
-            },
-            
-            // CRITICAL FOR RESTRICTIVE WI-FI & MOBILE DATA: Encrypted TURN over TLS (TURNS)
-            // Tunnels media through port 443 disguised as secure HTTPS web browsing traffic
-            { 
-                urls: 'turns:a.relay.metered.ca:443?transport=tcp', 
-                username: '2f2a84ff07ed9b7fb5e9cc21', 
-                credential: 'Uvfc7zqabCwxCkt4' 
-            },
-            { 
-                urls: 'turns:a.relay.metered.ca:5349?transport=tcp', 
-                username: '2f2a84ff07ed9b7fb5e9cc21', 
-                credential: 'Uvfc7zqabCwxCkt4' 
-            }
-        ],
-        iceCandidatePoolSize: 10
-    }
-});
-
-let isPeerReady = false;
-let hostEvictionTimeout = null;
-
-peer.on('open', (id) => {
-    console.log('[+] Learner PeerJS ready with ID:', id);
-    isPeerReady = true;
-    
-    if (pendingStreamRequestRoomId) {
-        liveSocket.emit('request-webrtc-stream', pendingStreamRequestRoomId, { peerId: id });
-        pendingStreamRequestRoomId = null;
-    }
-});
-
-peer.on('error', (err) => console.error('[-] Learner PeerJS Error:', err));
 
 // Drawing state variables
 let playbackActivePoints = [];
@@ -86,53 +35,28 @@ function setStudentCamPlaceholder(isCamOn) {
     if (placeholder) placeholder.style.display = isCamOn ? 'none' : 'flex';
 }
 
-function attachRemoteStream(remoteStream) {
-    console.log('[+] Live educator video/audio stream connected!');
+function initReceiverMedia() {
+    if (!playerAudioCtx) {
+        playerAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
     
-    // Clear watchdog timer as the streaming connection was successfully built
-    if (connectionWatchdogTimer) {
-        clearTimeout(connectionWatchdogTimer);
-        connectionWatchdogTimer = null;
+    // Replace the HTML5 video element with an img element for WebSocket JPEG frames
+    const camBox = document.getElementById('webcamContainerWrapperBox');
+    const oldVideo = document.getElementById('webcamVideoFeed');
+    if (oldVideo) {
+        oldVideo.pause();
+        oldVideo.remove();
     }
-
-    if (window.camVideoFeed) {
-        window.camVideoFeed.srcObject = remoteStream;
-        window.camVideoFeed.setAttribute('playsinline', 'true'); // Required for iOS Safari Wi-Fi rendering
-        window.camVideoFeed.play().catch(err => console.error("Autoplay blocked:", err));
-    }
-    const videoTracks = remoteStream.getVideoTracks();
-    if (videoTracks.length > 0) {
-        setStudentCamPlaceholder(videoTracks[0].enabled && !videoTracks[0].muted);
-        
-        videoTracks[0].onmute = () => setStudentCamPlaceholder(false);
-        videoTracks[0].onunmute = () => setStudentCamPlaceholder(true);
+    
+    if (!webcamImgFeed && camBox) {
+        webcamImgFeed = document.createElement('img');
+        webcamImgFeed.id = 'webcamImgFeed';
+        webcamImgFeed.style.width = '100%';
+        webcamImgFeed.style.height = '100%';
+        webcamImgFeed.style.objectFit = 'cover';
+        camBox.appendChild(webcamImgFeed);
     }
 }
-
-// Answer incoming WebRTC call from educator with Player ICE State Tracking
-peer.on('call', (call) => {
-    console.log('[+] Educator is calling learner. Answering...');
-    window.peerCall = call;
-    call.answer();
-    call.on('stream', attachRemoteStream);
-
-    // AUTOMATED WI-FI WATCHDOG: Track real-time ICE health status changes
-    if (call && call.peerConnection) {
-        call.peerConnection.oniceconnectionstatechange = () => {
-            const state = call.peerConnection.iceConnectionState;
-            console.log(`[*] Player WebRTC ICE State: ${state}`);
-            
-            // If the strict Wi-Fi router drops packets or fails, pro-actively signal the recorder to redial
-            if (['failed', 'disconnected'].includes(state)) {
-                console.warn('[-] Wi-Fi/Cellular network link dropped. Forcing signaling redial...');
-                if (window.ROOM_ID) {
-                    liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
-                }
-            }
-        };
-    }
-});
-
 
 // --- 2. NETWORK LIFECYCLE & RECONNECTION MANAGEMENT ---
 liveSocket.on('disconnect', (reason) => {
@@ -158,7 +82,6 @@ liveSocket.on('connect', () => {
     if (window.ROOM_ID) {
         console.log(`[*] Automatically rejoining room: ${window.ROOM_ID}...`);
         liveSocket.emit('join-room', window.ROOM_ID, LEARNER_PEER_ID, false);
-        liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
         
         console.log('[*] Requesting authoritative canvas snapshot...');
         liveSocket.emit('request-canvas-resync', window.ROOM_ID);
@@ -175,7 +98,6 @@ window.fetchActiveClasses = async function() {
     const grid = document.getElementById('liveClassesGrid');
     if (!grid) return;
 
-    // Do not fetch/overwrite lobby grid if the learner is currently sitting inside an active classroom
     if (window.ROOM_ID) return;
 
     try {
@@ -236,11 +158,13 @@ liveSocket.on('live-classes-updated', (updatedList) => {
 window.joinSelectedLiveClass = function(roomId, classTitle) {
     window.ROOM_ID = roomId;
     
-    // Stop background lobby polling while inside a classroom
     if (lobbyPollingInterval) {
         clearInterval(lobbyPollingInterval);
         lobbyPollingInterval = null;
     }
+
+    // Initialize the Audio Context and JPEG feed
+    initReceiverMedia();
 
     const homeView = document.getElementById('homeViewContainer');
     const webcamBox = document.getElementById('webcamContainerWrapperBox');
@@ -261,22 +185,6 @@ window.joinSelectedLiveClass = function(roomId, classTitle) {
 
     console.log(`[*] Connecting to live stream room: ${roomId}...`);
     liveSocket.emit('join-room', roomId, LEARNER_PEER_ID, false);
-
-    // Watchdog trigger loop: If signaling gets stuck due to early network blocks, force query loop
-    if (connectionWatchdogTimer) clearTimeout(connectionWatchdogTimer);
-    connectionWatchdogTimer = setTimeout(() => {
-        if (window.ROOM_ID && !window.camVideoFeed?.srcObject) {
-            console.warn("[*] Watchdog expired before stream received. Requesting explicit WebRTC poke...");
-            liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
-        }
-    }, 4000);
-
-    if (isPeerReady) {
-        liveSocket.emit('request-webrtc-stream', roomId, { peerId: LEARNER_PEER_ID });
-    } else {
-        console.log('[*] Waiting for PeerJS connection before requesting video stream...');
-        pendingStreamRequestRoomId = roomId;
-    }
 };
 
 liveSocket.on('class-ended', (data) => {
@@ -324,24 +232,57 @@ liveSocket.on('class-ended', (data) => {
     }
 });
 
-liveSocket.on('stream-ready', () => {
-    if (hostEvictionTimeout) {
-        clearTimeout(hostEvictionTimeout);
-        hostEvictionTimeout = null;
-        const overlay = document.getElementById('reconnectingOverlay');
-        if (overlay) overlay.classList.add('hidden');
+
+// --- 4. WEBSOCKET MEDIA RECEIVERS (Anti-Pileup Engine) ---
+// --- 4. WEBSOCKET MEDIA RECEIVERS (Anti-Pileup Engine) ---
+liveSocket.on('ws-video-frame', (data) => {
+    // WebSockets run on TCP, which guarantees in-order delivery.
+    // We don't need timestamp checks for video; just paint the newest frame.
+    
+    if (webcamImgFeed) {
+        webcamImgFeed.src = data.frame;
     }
-    if (window.ROOM_ID) liveSocket.emit('request-webrtc-stream', window.ROOM_ID, { peerId: LEARNER_PEER_ID });
+    
+    // FIX: Passing TRUE means "Yes, the camera is on", hiding the black placeholder text!
+    setStudentCamPlaceholder(true);
+});
+
+liveSocket.on('ws-audio-chunk', (data) => {
+    if (!playerAudioCtx) return;
+    
+    const floatData = new Float32Array(data.audio);
+    const audioBuffer = playerAudioCtx.createBuffer(1, floatData.length, data.sampleRate);
+    audioBuffer.getChannelData(0).set(floatData);
+    
+    const source = playerAudioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(playerAudioCtx.destination);
+    
+    const currentTime = playerAudioCtx.currentTime;
+    
+    // ANTI-PILEUP: Only use the AudioContext's local internal clock for timing.
+    // If the buffer is stacked more than 300ms ahead of current playback, 
+    // drop this chunk entirely to force playback to snap back to live.
+    if (nextAudioPlayTime > currentTime + 0.3) {
+        return; 
+    }
+    
+    // If the buffer starved and we are behind, reset the clock to current time
+    if (nextAudioPlayTime < currentTime) {
+        nextAudioPlayTime = currentTime;
+    }
+    
+    source.start(nextAudioPlayTime);
+    nextAudioPlayTime += audioBuffer.duration;
 });
 
 liveSocket.on('camera-status', (data) => setStudentCamPlaceholder(data.enabled));
 
 
-// --- IMMEDIATE DOM EXECUTION & 5-SECOND LOBBY POLLING ---
+// --- 5. IMMEDIATE DOM EXECUTION & LOBBY POLLING ---
 function initLobbyDiscoveryEngine() {
     window.fetchActiveClasses();
     
-    // Auto-poll API every 5 seconds while in the lobby so new streams appear automatically
     if (lobbyPollingInterval) clearInterval(lobbyPollingInterval);
     lobbyPollingInterval = setInterval(() => {
         if (!window.ROOM_ID) {
@@ -350,7 +291,6 @@ function initLobbyDiscoveryEngine() {
     }, 5000);
 }
 
-// Executes immediately if script loaded late, or waits for DOM if script loaded early
 if (document.readyState === 'loading') {
     window.addEventListener('DOMContentLoaded', initLobbyDiscoveryEngine);
 } else {
@@ -358,7 +298,7 @@ if (document.readyState === 'loading') {
 }
 
 
-// --- 4. SLIDE DECK SYNCHRONIZATION ---
+// --- 6. SLIDE DECK SYNCHRONIZATION ---
 liveSocket.on('deck-state-init', (deckPayload) => {
     if (!window.ROOM_ID) return;
 
@@ -377,7 +317,7 @@ liveSocket.on('deck-state-init', (deckPayload) => {
 });
 
 
-// --- 5. SLIDE NAVIGATION ENGINE ---
+// --- 7. SLIDE NAVIGATION ENGINE ---
 window.jumpToSlideIndex = function(index) {
     window.activeSlideIndex = index;
     if (typeof window.renderFlatSlideSorterUI === 'function') window.renderFlatSlideSorterUI();
@@ -401,7 +341,7 @@ window.jumpToSlideIndex = function(index) {
 };
 
 
-// --- 6. LIVE WHITEBOARD ACTION RECEIVER ---
+// --- 8. LIVE WHITEBOARD ACTION RECEIVER ---
 liveSocket.on('board-action', (ev) => {
     if (!window.ROOM_ID || !window.canvas) return;
 
@@ -529,7 +469,7 @@ liveSocket.on('board-action', (ev) => {
 });
 
 
-// --- 7. COLLAPSIBLE RIGHT RAIL & REAL-TIME CHAT CONTROLLER ---
+// --- 9. COLLAPSIBLE RIGHT RAIL & REAL-TIME CHAT CONTROLLER ---
 const btnToggleRightSidebar = document.getElementById('btnToggleRightSidebar');
 const btnRailChatToggle = document.getElementById('btnRailChatToggle');
 const camBox = document.getElementById('webcamContainerWrapperBox');
@@ -626,7 +566,7 @@ liveSocket.on('chat-message', (payload) => {
 });
 
 
-// --- 8. PATH & CURVE SMOOTHING UTILITY ---
+// --- 10. PATH & CURVE SMOOTHING UTILITY ---
 window.getSmoothPathFromPoints = function(points) {
     if (!points || points.length === 0) return 'M 0 0';
     if (points.length === 1) return `M ${points[0].x} ${points[0].y} L ${points[0].x} ${points[0].y}`;

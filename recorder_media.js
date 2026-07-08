@@ -1,13 +1,11 @@
 /**
  * RECORDER_MEDIA.JS — Educator Studio Live Stream & Media Controller
- * Features: Dynamic room creation, WebRTC PeerJS audio/video streaming, Socket.IO live action broadcasting,
- * automatic network reconnection recovery, intentional class shutdown handling, student attendance tracking, slide deck sync, and hotkeys.
+ * WebSocket Streaming Architecture (Replaces WebRTC)
  */
 
 // =====================================================================
 // 1. DYNAMIC ROOM & SOCKET INITIALIZATION (WITH RECONNECTION RECOVERY)
 // =====================================================================
-// Generate a unique room ID for this educator session
 window.ROOM_ID = 'room-' + Math.random().toString(36).substring(2, 9);
 const EDUCATOR_PEER_ID = 'educator-' + window.ROOM_ID;
 
@@ -27,6 +25,17 @@ let isCameraPermissionGranted = false;
 let isMicrophonePermissionGranted = false;
 let isRequestingPermissions = false;
 
+// WebSocket Streaming Globals
+let videoStreamTimer = null;
+let audioCtx = null;
+let scriptProcessor = null;
+let audioSource = null;
+
+const offscreenCanvas = document.createElement('canvas');
+offscreenCanvas.width = 120;
+offscreenCanvas.height = 65;
+const offCtx = offscreenCanvas.getContext('2d', { alpha: false });
+
 // DOM Elements
 const liveBadge = document.getElementById('btnLiveToggle');
 const camVideoFeed = document.getElementById('webcamVideoFeed');
@@ -38,7 +47,6 @@ const liveSetupModal = document.getElementById('liveSetupModal');
 const liveClassTitleInput = document.getElementById('liveClassTitleInput');
 const liveAttendanceCounter = document.getElementById('liveAttendanceCounter');
 
-// Initial UI State: Camera "Off" visual
 if (camVideoFeed) camVideoFeed.style.opacity = '0';
 if (btnMute) btnMute.classList.add('is-muted');
 
@@ -49,22 +57,21 @@ window.liveSocket.on('disconnect', (reason) => {
 
 window.liveSocket.on('connect', () => {
     console.log('[+] Educator Socket connected/reconnected. Checking broadcast state...');
-    // If the educator was actively broadcasting when the network blipped, restore the room instantly!
-    if (window.isRecording && window.ROOM_ID && window.educatorPeer) {
+    if (window.isRecording && window.ROOM_ID) {
         const headingTitle = document.getElementById('classroomStateHeadingTitle');
         const title = headingTitle ? headingTitle.innerText.replace('LIVE: ', '') : 'Restored Class';
         
         console.log(`[*] Network recovered! Re-registering live room: ${window.ROOM_ID} (${title})...`);
-        window.liveSocket.emit('join-room', window.ROOM_ID, window.educatorPeer.id, true, title);
+        window.liveSocket.emit('join-room', window.ROOM_ID, EDUCATOR_PEER_ID, true, title);
         
-        // Push the latest whiteboard canvas and slide deck back to connected learners
+        if (typeof window.saveCurrentSlideState === 'function') {
+            window.saveCurrentSlideState();
+        }
         if (typeof window.broadcastDeckState === 'function') {
             window.broadcastDeckState();
         }
-        window.liveSocket.emit('stream-ready', window.ROOM_ID, EDUCATOR_PEER_ID);
     }
 });
-
 
 // =====================================================================
 // 2. LIVE TIMER UTILITIES
@@ -92,71 +99,73 @@ function stopLiveTimer() {
     if (timerEl) timerEl.innerText = "00:00:00";
 }
 
+// =====================================================================
+// 3. WEBSOCKET LIVE STREAMING (Video @ 24fps & Audio PCM)
+// =====================================================================
+// =====================================================================
+// 3. WEBSOCKET LIVE STREAMING (Video @ 15fps & Audio PCM)
+// =====================================================================
+function startWebSocketStreaming(stream) {
+    // 1. Video Capture Loop (15 FPS = ~66ms)
+    if (videoStreamTimer) clearInterval(videoStreamTimer);
+    videoStreamTimer = setInterval(() => {
+        if (!isCameraHardwareOn || !window.isRecording || !window.ROOM_ID || !camVideoFeed) return;
+        
+        // Downscale to 120x65
+        offCtx.drawImage(camVideoFeed, 0, 0, 120, 65);
+        // Reduced quality to 0.5 to ensure fast Socket.io transmission
+        const frameData = offscreenCanvas.toDataURL('image/jpeg', 0.5);
+        
+        window.liveSocket.volatile.emit('ws-video-frame', window.ROOM_ID, {
+            frame: frameData
+            // Removed cross-device timestamp to prevent clock-drift bugs
+        });
+    }, 66);
 
-// =====================================================================
-// 3. PEERJS WEBRTC STREAMING SETUP (WITH STUN/TURN SERVERS)
-// =====================================================================
-window.educatorPeer = new Peer(EDUCATOR_PEER_ID, {
-    config: {
-        iceServers: [
-            { urls: 'stun:stun.relay.metered.ca:80' },
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'turn:a.relay.metered.ca:80', username: '2f2a84ff07ed9b7fb5e9cc21', credential: 'Uvfc7zqabCwxCkt4' },
-            { urls: 'turn:a.relay.metered.ca:443', username: '2f2a84ff07ed9b7fb5e9cc21', credential: 'Uvfc7zqabCwxCkt4' },
-            { urls: 'turn:a.relay.metered.ca:443?transport=tcp', username: '2f2a84ff07ed9b7fb5e9cc21', credential: 'Uvfc7zqabCwxCkt4' }
-        ]
+    // 2. Audio Capture (Raw PCM)
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioSource = audioCtx.createMediaStreamSource(stream);
+        
+        scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1); 
+        
+        audioSource.connect(scriptProcessor);
+        scriptProcessor.connect(audioCtx.destination); 
+        
+        scriptProcessor.onaudioprocess = (e) => {
+            if (!isAudioHardwareOn || !window.isRecording || !window.ROOM_ID) return;
+            
+            const inputData = e.inputBuffer.getChannelData(0);
+            
+            window.liveSocket.volatile.emit('ws-audio-chunk', window.ROOM_ID, {
+                audio: inputData.buffer,
+                sampleRate: audioCtx.sampleRate
+                // Removed cross-device timestamp
+            });
+        };
+    } catch (err) {
+        console.error("[-] Failed to initialize audio context for streaming:", err);
     }
-});
-
-window.educatorPeer.on('open', (id) => {
-    console.log('[+] Educator Peer engine ready with ID:', id);
-});
-
-window.educatorPeer.on('error', (err) => {
-    console.error('[-] PeerJS Error:', err);
-});
-
-// Automatically answer incoming student video/audio calls with educator's stream
-window.educatorPeer.on('call', (call) => {
-    if (localHardwareAVStream) {
-        console.log('[+] Student connected to WebRTC feed. Answering call...');
-        call.answer(localHardwareAVStream);
-    } else {
-        console.warn('[-] Student called, but camera/mic is not active yet.');
+}
+function stopWebSocketStreaming() {
+    if (videoStreamTimer) clearInterval(videoStreamTimer);
+    if (audioCtx && audioCtx.state !== 'closed') {
+        audioCtx.close();
     }
-});
-
+    if (scriptProcessor) scriptProcessor.disconnect();
+    if (audioSource) audioSource.disconnect();
+}
 
 // =====================================================================
-// 4. SLIDE DECK SYNCHRONIZATION & ATTENDANCE TRACKING
+// 4. SLIDE DECK SYNCHRONIZATION & EVENT HOOKS
 // =====================================================================
-// 1. Add this listener anywhere in Section 4 of recorder_media.js:
 window.liveSocket.on('request-canvas-resync', () => {
     console.log('[*] Student requested canvas resync. Broadcasting fresh JSON snapshot...');
     if (typeof window.broadcastDeckState === 'function') {
-        window.broadcastDeckState(); // Forces saveCurrentSlideState() and pushes authoritative JSON
+        window.broadcastDeckState(); 
     }
 });
 
-// 2. Ensure your existing educator connect listener in Section 1 forces a save before pushing:
-window.liveSocket.on('connect', () => {
-    console.log('[+] Educator Socket reconnected.');
-    if (window.isRecording && window.ROOM_ID && window.educatorPeer) {
-        const headingTitle = document.getElementById('classroomStateHeadingTitle');
-        const title = headingTitle ? headingTitle.innerText.replace('LIVE: ', '') : 'Restored Class';
-        
-        window.liveSocket.emit('join-room', window.ROOM_ID, window.educatorPeer.id, true, title);
-        
-        // Force capture of anything drawn while offline before syncing to students!
-        if (typeof window.saveCurrentSlideState === 'function') {
-            window.saveCurrentSlideState();
-        }
-        if (typeof window.broadcastDeckState === 'function') {
-            window.broadcastDeckState();
-        }
-        window.liveSocket.emit('stream-ready', window.ROOM_ID, EDUCATOR_PEER_ID);
-    }
-});
 window.broadcastDeckState = function() {
     if (window.liveSocket && window.isRecording && typeof window.saveCurrentSlideState === 'function') {
         window.saveCurrentSlideState();
@@ -169,35 +178,17 @@ window.broadcastDeckState = function() {
     }
 };
 
-// When a new student joins late, immediately sync slides and actively call their WebRTC stream
 window.liveSocket.on('user-connected', (data) => {
     if (!data.isEducator) {
         console.log('[+] Learner joined the active stream! Syncing state...');
         window.broadcastDeckState();
-        
-        if (localHardwareAVStream && window.educatorPeer && data.peerId) {
-            setTimeout(() => {
-                console.log('[+] Dialing learner via WebRTC:', data.peerId);
-                window.educatorPeer.call(data.peerId, localHardwareAVStream);
-            }, 600);
-        }
     }
 });
 
-// Listen for explicit stream requests from late-joining students or students recovering from a network drop
-window.liveSocket.on('request-webrtc-stream', (data) => {
-    if (localHardwareAVStream && window.educatorPeer && data.peerId) {
-        console.log('[+] Learner requested WebRTC stream explicitly. Calling:', data.peerId);
-        window.educatorPeer.call(data.peerId, localHardwareAVStream);
-    }
-});
-
-// Real-Time Live Attendance Counter Update
 window.liveSocket.on('attendance-update', (count) => {
     console.log('[*] Live student count updated:', count);
     if (liveAttendanceCounter) {
         liveAttendanceCounter.innerText = `👥 ${count} Watching`;
-        
         if (count > 0) {
             liveAttendanceCounter.classList.add('has-viewers');
         } else {
@@ -205,7 +196,6 @@ window.liveSocket.on('attendance-update', (count) => {
         }
     }
 });
-
 
 // =====================================================================
 // 5. HARDWARE CAMERA & MICROPHONE PERMISSIONS
@@ -232,9 +222,8 @@ async function requestHardwarePermissions() {
         document.getElementById('camHardwareErrorNotice')?.classList.add('hidden');
         if (camPlaceholderText) camPlaceholderText.style.display = 'none';
         
-        if (window.liveSocket && window.isRecording) {
-            window.liveSocket.emit('stream-ready', window.ROOM_ID, EDUCATOR_PEER_ID);
-        }
+        // START WEBSOCKET STREAM
+        startWebSocketStreaming(localHardwareAVStream);
         
         isRequestingPermissions = false;
         return true;
@@ -333,12 +322,10 @@ liveBadge?.addEventListener('click', async () => {
         }
     }
     
-    // If currently live, end the stream and disconnect from room
     if (window.isRecording) {
         if (typeof window.saveCurrentSlideState === 'function') window.saveCurrentSlideState();
         window.isRecording = false; 
         
-        // Explicitly notify server that the host intentionally closed the room
         if (window.liveSocket && window.ROOM_ID) {
             window.liveSocket.emit('end-class', window.ROOM_ID);
         }
@@ -347,11 +334,11 @@ liveBadge?.addEventListener('click', async () => {
         liveBadge.classList.remove('recording');
         
         stopLiveTimer();
+        stopWebSocketStreaming();
         if (liveAttendanceCounter) {
             liveAttendanceCounter.classList.add('hidden');
         }
         
-        // Give socket 150ms to dispatch end-class event before reloading
         setTimeout(() => {
             window.location.reload();
         }, 150);
@@ -376,7 +363,7 @@ document.getElementById('btnConfirmLiveStart')?.addEventListener('click', () => 
     if (headingTitle) headingTitle.innerText = `LIVE: ${enteredTitle}`;
 
     console.log(`[*] Registering room ${window.ROOM_ID} as "${enteredTitle}"...`);
-    window.liveSocket.emit('join-room', window.ROOM_ID, window.educatorPeer.id, true, enteredTitle);
+    window.liveSocket.emit('join-room', window.ROOM_ID, EDUCATOR_PEER_ID, true, enteredTitle);
 
     window.isRecording = true; 
     window.recordStartTime = Date.now(); 
@@ -391,7 +378,6 @@ document.getElementById('btnConfirmLiveStart')?.addEventListener('click', () => 
     }
     
     window.broadcastDeckState();
-    window.liveSocket.emit('stream-ready', window.ROOM_ID, EDUCATOR_PEER_ID);
 });
 
 document.getElementById('btnEndClass')?.addEventListener('click', () => { 
